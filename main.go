@@ -25,6 +25,8 @@ import (
 	"xzdp/biz/middleware/interceptor"
 	shopservice "xzdp/biz/service/shop"
 	"xzdp/conf"
+	"xzdp/internal/booking"
+	"xzdp/internal/discovery"
 	"xzdp/internal/migrate"
 	"xzdp/internal/nearby"
 	"xzdp/internal/observe"
@@ -121,6 +123,8 @@ func run(ctx context.Context) error {
 		}
 		c.Data(200, "text/plain; version=0.0.4", []byte("# TYPE xzdp_build_info gauge\nxzdp_build_info 1\n"+shopCache.Metrics()+metrics))
 	})
+	discovery.Register(h, pool)
+	booking.Register(h, pool)
 	sale.Register(h, cfg.MockPayment)
 	register(h)
 	if cfg.Hertz.EnablePprof {

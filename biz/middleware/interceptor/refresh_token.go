@@ -21,7 +21,7 @@ func publicRoute(method, path string) bool {
 		return false
 	}
 	switch path {
-	case "/ping", "/hello", "/shop/:id", "/shop/of/type", "/shop/of/type/geo", "/shop-type/list", "/voucher/list/:id", "/blog/hot", "/blog/:id", "/blog/user/:id", "/blog/likes/:id", "/imgs/*filepath":
+	case "/shops/search", "/shops/:id/slots", "/ping", "/hello", "/shop/:id", "/shop/of/type", "/shop/of/type/geo", "/shop-type/list", "/voucher/list/:id", "/blog/hot", "/blog/:id", "/blog/user/:id", "/blog/likes/:id", "/imgs/*filepath":
 		return true
 	}
 	return false
