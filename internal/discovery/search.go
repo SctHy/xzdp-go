@@ -18,16 +18,25 @@ type Hit struct {
 	Distance float64 `json:"distanceMeters"`
 }
 
+type Query struct {
+	Q      string  `query:"q"`
+	Type   int64   `query:"typeId"`
+	X      float64 `query:"x"`
+	Y      float64 `query:"y"`
+	Radius float64 `query:"radiusMeters"`
+	Page   int     `query:"page"`
+}
+
 func Register(h *server.Hertz, db *sql.DB) {
+	RegisterSearch(h, func(ctx context.Context, q Query) (*sql.Rows, error) {
+		return db.QueryContext(ctx, `SELECT id,name,type_id,ST_Distance_Sphere(POINT(x,y),POINT(?,?)) AS meters FROM tb_shop
+ WHERE (?=0 OR type_id=?) AND LOCATE(?,name)>0 HAVING meters<=? ORDER BY meters,id LIMIT 10 OFFSET ?`, q.X, q.Y, q.Type, q.Type, q.Q, q.Radius, (max(1, q.Page)-1)*10)
+	})
+}
+
+func RegisterSearch(h *server.Hertz, search func(context.Context, Query) (*sql.Rows, error)) {
 	h.GET("/shops/search", api.Endpoint(func(ctx context.Context, c *app.RequestContext) (any, error) {
-		var q struct {
-			Q      string  `query:"q"`
-			Type   int64   `query:"typeId"`
-			X      float64 `query:"x"`
-			Y      float64 `query:"y"`
-			Radius float64 `query:"radiusMeters"`
-			Page   int     `query:"page"`
-		}
+		var q Query
 		if err := c.BindQuery(&q); err != nil || c.Query("x") == "" || c.Query("y") == "" || math.IsNaN(q.X+q.Y+q.Radius) || math.Abs(q.X) > 180 || math.Abs(q.Y) > 90 || q.Radius < 0 || q.Radius > 20000000 || q.Page < 0 || q.Page > 1000000 || q.Type < 0 {
 			return nil, api.Problem("搜索参数无效")
 		}
@@ -37,8 +46,7 @@ func Register(h *server.Hertz, db *sql.DB) {
 		if q.Radius == 0 {
 			q.Radius = 5000
 		}
-		rows, err := db.QueryContext(ctx, `SELECT id,name,type_id,ST_Distance_Sphere(POINT(x,y),POINT(?,?)) AS meters FROM tb_shop
- WHERE (?=0 OR type_id=?) AND LOCATE(?,name)>0 HAVING meters<=? ORDER BY meters,id LIMIT 10 OFFSET ?`, q.X, q.Y, q.Type, q.Type, q.Q, q.Radius, (max(1, q.Page)-1)*10)
+		rows, err := search(ctx, q)
 		if err != nil {
 			return nil, err
 		}

@@ -1,0 +1,35 @@
+services:
+  mysql:
+    image: mysql:8.4
+    mem_limit: 512m
+    cpus: 2
+    command: [--innodb-buffer-pool-size=96M, --max-connections=40, --performance-schema=OFF]
+    environment:
+      MYSQL_DATABASE: bench
+      MYSQL_USER: bench
+      MYSQL_PASSWORD: bench-local
+      MYSQL_RANDOM_ROOT_PASSWORD: "yes"
+    volumes:
+      - ../../resources/xzdp.sql:/docker-entrypoint-initdb.d/10-source.sql:ro
+      - ./mysql.sql:/docker-entrypoint-initdb.d/20-fixture.sql:ro
+    ports: ["127.0.0.1::3306"]
+    healthcheck:
+      test: ["CMD-SHELL","MYSQL_PWD=bench-local mysql -h127.0.0.1 -ubench bench -e 'SELECT id FROM bench_slot'"]
+      interval: 2s
+      timeout: 3s
+      retries: 60
+  pg:
+    image: imresamu/postgis:17-3.5
+    mem_limit: 512m
+    cpus: 2
+    command: [postgres, -c, shared_buffers=96MB, -c, max_connections=40]
+    environment:
+      POSTGRES_DB: bench
+      POSTGRES_USER: bench
+      POSTGRES_PASSWORD: bench-local
+    ports: ["127.0.0.1::5432"]
+    healthcheck:
+      test: ["CMD-SHELL","pg_isready -h127.0.0.1 -U bench -d bench"]
+      interval: 2s
+      timeout: 3s
+      retries: 60

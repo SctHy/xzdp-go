@@ -11,6 +11,7 @@ require (
 	github.com/go-redsync/redsync/v4 v4.13.0
 	github.com/hertz-contrib/sse v0.0.5
 	github.com/jinzhu/copier v0.4.0
+	github.com/lib/pq v1.10.9
 	github.com/prometheus/client_golang v1.19.1
 	github.com/prometheus/common v0.48.0
 	github.com/segmentio/kafka-go v0.4.47
