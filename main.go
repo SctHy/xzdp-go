@@ -30,6 +30,7 @@ import (
 	"xzdp/internal/migrate"
 	"xzdp/internal/nearby"
 	"xzdp/internal/observe"
+	"xzdp/internal/rewards"
 	"xzdp/internal/social"
 	"xzdp/internal/trade"
 )
@@ -125,6 +126,7 @@ func run(ctx context.Context) error {
 	})
 	discovery.Register(h, pool)
 	booking.Register(h, pool)
+	rewards.Register(h, pool, redis.RedisClient)
 	sale.Register(h, cfg.MockPayment)
 	register(h)
 	if cfg.Hertz.EnablePprof {
