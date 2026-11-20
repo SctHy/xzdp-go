@@ -12,6 +12,7 @@ func TestLoadOverrides(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Setenv("XZDP_CONFIG", file)
+	t.Setenv("XZDP_PPROF", "false")
 	t.Setenv("XZDP_REDIS_ADDRESS", "env:6379")
 	c, err := Load()
 	if err != nil || c.Redis.Address != "env:6379" || c.Hertz.EnablePprof {

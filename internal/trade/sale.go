@@ -8,10 +8,12 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"github.com/go-redis/redis/v8"
 	"strconv"
 	"strings"
-	"sync/atomic"
+
+	"github.com/go-redis/redis/v8"
+
+	"xzdp/internal/observe"
 )
 
 type Sale struct {
@@ -24,8 +26,6 @@ type Order struct {
 	Voucher int64  `json:"voucher"`
 	User    int64  `json:"user"`
 }
-
-var Rejections atomic.Uint64
 
 func (s Sale) key(v int64) string { return fmt.Sprintf("%sv:%d", s.Prefix, v) }
 func (s Sale) Warm(ctx context.Context, v int64) error {
@@ -91,7 +91,7 @@ func checked(cmd *redis.Cmd) (string, error) {
 		return "", err
 	}
 	if v[0].(int64) == 0 {
-		Rejections.Add(1)
+		observe.LuaRejections.Inc()
 		return "", errors.New(v[1].(string))
 	}
 	return v[1].(string), nil
@@ -108,35 +108,36 @@ func (s Sale) Token(ctx context.Context, v, u int64) (string, error) {
 	return checked(issue.Run(ctx, s.Redis, []string{k, k + ":buyers", fmt.Sprintf("%s:token:%d", k, u)}, u, hex.EncodeToString(b[:])))
 }
 
-var reserve = redis.NewScript(`
+// GET returns the exact decimal ID even above Lua's integer precision.
+const allocateOrder = `
+local function allocate(key)
+ redis.call('SET',key,'4611686018427387904','NX')
+ redis.call('INCR',key)
+ return redis.call('GET',key)
+end
+`
+
+var reserve = redis.NewScript(allocateOrder + `
 local now=tonumber(redis.call('TIME')[1])
 if redis.call('GET',KEYS[3])~=ARGV[2] then return {0,'令牌无效'} end
 local a=redis.call('HMGET',KEYS[1],'start','end','stock')
 if not a[1] or now<tonumber(a[1]) or now>=tonumber(a[2]) then return {0,'活动未开放'} end
 if redis.call('HEXISTS',KEYS[2],ARGV[1])==1 then return {0,'已下单'} end
 if tonumber(a[3])<=0 then return {0,'已售罄'} end
+local id=allocate(KEYS[6])
 redis.call('HINCRBY',KEYS[1],'stock',-1)
-redis.call('HSET',KEYS[2],ARGV[1],ARGV[3])
+redis.call('HSET',KEYS[2],ARGV[1],id)
 redis.call('DEL',KEYS[3])
-redis.call('HSET',KEYS[4],ARGV[3],ARGV[4])
-redis.call('ZADD',KEYS[5],now,ARGV[3])
-return {1,ARGV[3]}`)
+redis.call('HSET',KEYS[4],id,ARGV[3])
+redis.call('ZADD',KEYS[5],now,id)
+return {1,id}`)
 
 func (s Sale) Reserve(ctx context.Context, v, u int64, token string) (string, error) {
 	if token == "" {
 		return "", errors.New("缺少秒杀令牌")
 	}
-	id, err := s.nextID(ctx)
-	if err != nil {
-		return "", err
-	}
 	k := s.key(v)
-	return checked(reserve.Run(ctx, s.Redis, []string{k, k + ":buyers", fmt.Sprintf("%s:token:%d", k, u), s.Prefix + "pending", s.Prefix + "relay"}, u, token, id, fmt.Sprintf("%d:%d", v, u)))
-}
-func (s Sale) nextID(ctx context.Context) (string, error) {
-	// Redis serializes the sequence across all API and worker instances.
-	seq, err := s.Redis.Incr(ctx, s.Prefix+"sequence").Result()
-	return strconv.FormatInt((1<<61)+seq, 10), err
+	return checked(reserve.Run(ctx, s.Redis, []string{k, k + ":buyers", fmt.Sprintf("%s:token:%d", k, u), s.Prefix + "pending", s.Prefix + "relay", s.Prefix + "order-sequence"}, u, token, fmt.Sprintf("%d:%d", v, u)))
 }
 func (s Sale) pending(ctx context.Context, id string) (Order, error) {
 	data, err := s.Redis.HGet(ctx, s.Prefix+"pending", id).Result()
@@ -187,6 +188,9 @@ for _,k in ipairs(KEYS) do redis.call('ZADD',k,now,ARGV[4]);redis.call('PEXPIRE'
 func (s Sale) Allow(ctx context.Context, ip, path, request string, user int64) (bool, error) {
 	prefix := s.Prefix + "limit:"
 	n, err := window.Run(ctx, s.Redis, []string{prefix + "ip:" + ip, prefix + "route:" + path, prefix + "user:" + strconv.FormatInt(user, 10)}, 2500, 5000, 10, request).Int()
+	if n == 0 && err == nil {
+		observe.LuaRejections.Inc()
+	}
 	return n == 1, err
 }
 

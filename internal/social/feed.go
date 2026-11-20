@@ -3,11 +3,13 @@ package social
 import (
 	"context"
 	"fmt"
-	"github.com/go-redis/redis/v8"
-	"gorm.io/gorm"
 	"sort"
 	"strconv"
 	"time"
+
+	"github.com/go-redis/redis/v8"
+	"gorm.io/gorm"
+
 	"xzdp/biz/model/blog"
 	"xzdp/biz/pkg/constants"
 )
@@ -77,7 +79,27 @@ func Timeline(ctx context.Context, db *gorm.DB, r *redis.Client, user int64, q *
 	if q.Offset < 0 || q.Offset > 100000 {
 		return nil, fmt.Errorf("invalid feed offset")
 	}
-	limit := q.Offset + constants.MAX_PAGE_SIZE
+	result := &blog.FollowBlogRresp{List: []*blog.Blog{}, MinTime: "0"}
+	offset := q.Offset
+	for len(result.List) < constants.MAX_PAGE_SIZE {
+		remaining := constants.MAX_PAGE_SIZE - len(result.List)
+		page, err := readPage(ctx, db, r, user, maxTime, offset, remaining)
+		if err != nil {
+			return nil, err
+		}
+		if page.MinTime == "0" {
+			break
+		}
+		result.List = append(result.List, page.List...)
+		result.Offset, result.MinTime = page.Offset, page.MinTime
+		maxTime, _ = strconv.ParseInt(page.MinTime, 10, 64)
+		offset = page.Offset
+	}
+	return result, nil
+}
+
+func readPage(ctx context.Context, db *gorm.DB, r *redis.Client, user, maxTime, offset int64, size int) (*blog.FollowBlogRresp, error) {
+	limit := offset + int64(size)
 	entries := make(map[string]int64)
 	pushed, err := r.ZRevRangeByScoreWithScores(ctx, constants.FEED_KEY+strconv.FormatInt(user, 10), &redis.ZRangeBy{Min: "0", Max: strconv.FormatInt(maxTime, 10), Count: limit}).Result()
 	if err != nil {
@@ -108,7 +130,7 @@ func Timeline(ctx context.Context, db *gorm.DB, r *redis.Client, user int64, q *
 	})
 	res := &blog.FollowBlogRresp{List: []*blog.Blog{}, MinTime: "0"}
 	ids := make([]string, 0, constants.MAX_PAGE_SIZE)
-	skip := q.Offset
+	skip := offset
 	for _, e := range sorted {
 		if e.Stamp == maxTime && skip > 0 {
 			skip--
@@ -120,11 +142,11 @@ func Timeline(ctx context.Context, db *gorm.DB, r *redis.Client, user int64, q *
 			res.MinTime = t
 			res.Offset = 0
 			if e.Stamp == maxTime {
-				res.Offset = q.Offset
+				res.Offset = offset
 			}
 		}
 		res.Offset++
-		if len(ids) == constants.MAX_PAGE_SIZE {
+		if len(ids) == size {
 			break
 		}
 	}

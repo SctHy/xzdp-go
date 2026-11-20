@@ -2,12 +2,14 @@ package blog
 
 import (
 	"context"
-
 	"strconv"
-	"xzdp/biz/dal/mysql"
 
 	"github.com/cloudwego/hertz/pkg/app"
-	blog "xzdp/biz/model/blog"
+	"gorm.io/gorm"
+
+	"xzdp/biz/dal/mysql"
+	"xzdp/biz/model/blog"
+	"xzdp/biz/utils"
 )
 
 type DeleteBlogService struct {
@@ -24,12 +26,20 @@ func (h *DeleteBlogService) Run(req *string) (resp *blog.Empty, err error) {
 	if err != nil {
 		return nil, err
 	}
-	err = mysql.DeleteBlogComment(h.Context, bid)
-	if err != nil {
-		return nil, err
-	}
-	// 从数据库删除博客
-	err = mysql.DB.WithContext(h.Context).Where("id = ?", bid).Delete(&blog.Blog{}).Error
+	owner := utils.GetUser(h.Context).GetID()
+	err = mysql.DB.WithContext(h.Context).Transaction(func(tx *gorm.DB) error {
+		deleted := tx.Where("id=? AND user_id=?", bid, owner).Delete(&blog.Blog{})
+		if deleted.Error != nil {
+			return deleted.Error
+		}
+		if deleted.RowsAffected == 0 {
+			return gorm.ErrRecordNotFound
+		}
+		if err := tx.Exec("DELETE FROM tb_blog_comments WHERE blog_id=?", bid).Error; err != nil {
+			return err
+		}
+		return tx.Exec("DELETE FROM feed_publication WHERE blog_id=?", bid).Error
+	})
 	if err != nil {
 		return nil, err
 	}

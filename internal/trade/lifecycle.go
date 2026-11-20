@@ -5,10 +5,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/go-redis/redis/v8"
 	"log/slog"
 	"strconv"
 	"time"
+
+	"github.com/go-redis/redis/v8"
+
 	"xzdp/biz/model/message"
 	"xzdp/biz/pkg/constants"
 )
@@ -61,16 +63,17 @@ func (s Sale) Wait(ctx context.Context, v, u int64) (string, error) {
 	return checked(joinWait.Run(ctx, s.Redis, []string{k, k + ":buyers", k + ":wait"}, u))
 }
 
-var releaseStock = redis.NewScript(`
+var releaseStock = redis.NewScript(allocateOrder + `
 if redis.call('SISMEMBER',KEYS[4],ARGV[1])==1 then return 0 end
 if redis.call('EXISTS',KEYS[1])==0 then return redis.error_reply('activity not initialized') end
 local now=tonumber(redis.call('TIME')[1])
 local user=redis.call('ZRANGE',KEYS[3],0,0)[1]
 if user and now<tonumber(redis.call('HGET',KEYS[1],'end')) then
+ local id=allocate(KEYS[7])
  redis.call('ZREM',KEYS[3],user)
- redis.call('HSET',KEYS[2],user,ARGV[2])
- redis.call('HSET',KEYS[5],ARGV[2],ARGV[3]..':'..user)
- redis.call('ZADD',KEYS[6],now,ARGV[2])
+ redis.call('HSET',KEYS[2],user,id)
+ redis.call('HSET',KEYS[5],id,ARGV[2]..':'..user)
+ redis.call('ZADD',KEYS[6],now,id)
 else redis.call('HINCRBY',KEYS[1],'stock',1) end
 redis.call('SADD',KEYS[4],ARGV[1])
 return 1`)
@@ -80,11 +83,7 @@ func (s Sale) release(ctx context.Context, id string, v int64) error {
 	if err := s.Warm(ctx, v); err != nil {
 		return err
 	}
-	next, err := s.nextID(ctx)
-	if err != nil {
-		return err
-	}
-	err = releaseStock.Run(ctx, s.Redis, []string{k, k + ":buyers", k + ":wait", k + ":released", s.Prefix + "pending", s.Prefix + "relay"}, id, next, v).Err()
+	err := releaseStock.Run(ctx, s.Redis, []string{k, k + ":buyers", k + ":wait", k + ":released", s.Prefix + "pending", s.Prefix + "relay", s.Prefix + "order-sequence"}, id, v).Err()
 	if err != nil {
 		return err
 	}

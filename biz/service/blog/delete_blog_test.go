@@ -2,16 +2,18 @@ package blog
 
 import (
 	"context"
-	"regexp"
+
 	"testing"
 
 	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/alicebob/miniredis/v2"
 	"github.com/cloudwego/hertz/pkg/app"
-	"github.com/cloudwego/hertz/pkg/common/test/assert"
 	goredis "github.com/go-redis/redis/v8"
+	"github.com/stretchr/testify/require"
 	"gorm.io/driver/mysql"
 	"gorm.io/gorm"
+	"xzdp/biz/model/user"
+	"xzdp/biz/utils"
 
 	mysqlDal "xzdp/biz/dal/mysql"
 	"xzdp/biz/dal/redis"
@@ -19,35 +21,33 @@ import (
 
 func TestDeleteBlogService_Run(t *testing.T) {
 	// Mock Redis
-	mr, _ := miniredis.Run()
+	mr := miniredis.RunT(t)
 	redis.RedisClient = goredis.NewClient(&goredis.Options{Addr: mr.Addr()})
 
 	// Mock MySQL
-	db, mock, _ := sqlmock.New()
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer db.Close()
 	gormDB, _ := gorm.Open(mysql.New(mysql.Config{
 		Conn:                      db,
 		SkipInitializeWithVersion: true,
 	}), &gorm.Config{})
 	mysqlDal.DB = gormDB
 
-	// Mock queries
-	mock.ExpectQuery(regexp.QuoteMeta("SELECT * FROM `tb_blog_comment`")).WillReturnRows(sqlmock.NewRows([]string{"id"}))
+	ctx := utils.SaveUser(context.Background(), &user.UserDTO{ID: 2})
+	service := NewDeleteBlogService(ctx, app.NewContext(1))
+	id := "1"
 	mock.ExpectBegin()
-	mock.ExpectExec(regexp.QuoteMeta("DELETE FROM `tb_blog`")).WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectExec("DELETE FROM `tb_blog` WHERE id=.+ AND user_id=").WithArgs(1, 2).WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectRollback()
+	_, err = service.Run(&id)
+	require.ErrorIs(t, err, gorm.ErrRecordNotFound)
+	mock.ExpectBegin()
+	mock.ExpectExec("DELETE FROM `tb_blog` WHERE id=.+ AND user_id=").WithArgs(1, 2).WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec("DELETE FROM tb_blog_comments").WithArgs(1).WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec("DELETE FROM feed_publication").WithArgs(1).WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectCommit()
-
-	ctx := context.Background()
-	c := app.NewContext(1)
-	s := NewDeleteBlogService(ctx, c)
-	// init req and assert value
-	str := "1"
-	req := &str
-	resp, err := s.Run(req)
-
-	// Just ensure no panic. Error is fine.
-	if err != nil {
-		t.Log(err)
-	} else {
-		assert.NotEqual(t, nil, resp)
-	}
+	_, err = service.Run(&id)
+	require.NoError(t, err)
+	require.NoError(t, mock.ExpectationsWereMet())
 }

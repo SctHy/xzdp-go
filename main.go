@@ -18,6 +18,7 @@ import (
 	"github.com/cloudwego/hertz/pkg/app/server"
 	"github.com/cloudwego/hertz/pkg/common/hlog"
 	"golang.org/x/sync/errgroup"
+
 	"xzdp/biz/dal/mysql"
 	"xzdp/biz/dal/redis"
 	"xzdp/biz/handler/health"
@@ -25,6 +26,7 @@ import (
 	shopservice "xzdp/biz/service/shop"
 	"xzdp/conf"
 	"xzdp/internal/migrate"
+	"xzdp/internal/observe"
 	"xzdp/internal/social"
 	"xzdp/internal/trade"
 )
@@ -76,9 +78,11 @@ func run(ctx context.Context) error {
 		return err
 	}
 	shopCache := shopservice.ConfigureCache(cfg)
-	workers, stopWorkers := context.WithCancel(ctx)
+	workers, stopWorkers := context.WithCancel(context.WithoutCancel(ctx))
 	socialStore := social.Store{DB: pool, Redis: redis.RedisClient, Prefix: "xzdp:" + cfg.Env + ":social:"}
+	visitors := interceptor.NewVisitors(redis.RedisClient)
 	var cacheGroup errgroup.Group
+	cacheGroup.Go(func() error { return visitors.Run(workers) })
 	cacheGroup.Go(func() error { return socialStore.Run(workers) })
 	cacheGroup.Go(func() error { return sale.Maintain(workers) })
 	cacheGroup.Go(func() error { return sale.Run(workers, cfg.KafkaBroker, cfg.Env) })
@@ -89,7 +93,7 @@ func run(ctx context.Context) error {
 	h := server.New(server.WithHostPorts(cfg.Hertz.Address))
 	streams, endStreams := context.WithCancel(context.Background())
 	defer endStreams()
-	h.Use(interceptor.Access, interceptor.Cors, interceptor.CheckToken, sale.Limit, interceptor.UniqueVisitor)
+	h.Use(interceptor.Access, interceptor.Cors, interceptor.CheckToken, sale.Limit, visitors.Record)
 	h.Use(func(ctx context.Context, c *app.RequestContext) {
 		if c.FullPath() == "/message/sse" {
 			streamCtx, cancel := context.WithCancel(ctx)
@@ -103,7 +107,12 @@ func run(ctx context.Context) error {
 	h.GET("/health/live", health.Live)
 	h.GET("/health/ready", checks.Ready)
 	h.GET("/metrics", func(_ context.Context, c *app.RequestContext) {
-		c.Data(200, "text/plain; version=0.0.4", []byte("# TYPE xzdp_build_info gauge\nxzdp_build_info 1\n"+shopCache.Metrics()))
+		metrics, err := observe.Text()
+		if err != nil {
+			c.Status(500)
+			return
+		}
+		c.Data(200, "text/plain; version=0.0.4", []byte("# TYPE xzdp_build_info gauge\nxzdp_build_info 1\n"+shopCache.Metrics()+metrics))
 	})
 	sale.Register(h)
 	register(h)

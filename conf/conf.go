@@ -91,7 +91,7 @@ func Current() (*Config, error) {
 }
 
 func Load() (*Config, error) {
-	c := Config{FeedThreshold: 10000, Env: GetEnv(), KafkaBroker: "127.0.0.1:9092", ShopCache: DefaultShopCache(), Hertz: Hertz{Address: ":8081", LogLevel: "info"}, MySQL: MySQL{DSN: "xzdp:xzdp-local@tcp(127.0.0.1:3306)/xzdp?parseTime=true&timeout=3s"}, Redis: Redis{Address: "127.0.0.1:6379"}, Cors: Cors{Mode: "allow-all"}}
+	c := Config{FeedThreshold: 10000, Env: GetEnv(), KafkaBroker: "127.0.0.1:9092", ShopCache: DefaultShopCache(), Hertz: Hertz{Address: ":8081", LogLevel: "info", EnableAccessLog: true}, MySQL: MySQL{DSN: "xzdp:xzdp-local@tcp(127.0.0.1:3306)/xzdp?parseTime=true&timeout=3s"}, Redis: Redis{Address: "127.0.0.1:6379"}, Cors: Cors{Mode: "allow-all"}}
 	path, explicit := os.LookupEnv("XZDP_CONFIG")
 	if !explicit {
 		path = filepath.Join("conf", c.Env, "conf.yaml")
@@ -107,6 +107,12 @@ func Load() (*Config, error) {
 	for key, dest := range map[string]*string{"XZDP_KAFKA_BROKER": &c.KafkaBroker, "XZDP_HTTP_ADDRESS": &c.Hertz.Address, "XZDP_LOG_LEVEL": &c.Hertz.LogLevel, "XZDP_MYSQL_DSN": &c.MySQL.DSN, "XZDP_REDIS_ADDRESS": &c.Redis.Address, "XZDP_REDIS_PASSWORD": &c.Redis.Password} {
 		if v, ok := os.LookupEnv(key); ok {
 			*dest = v
+		}
+	}
+	if v, ok := os.LookupEnv("XZDP_ACCESS_LOG"); ok {
+		c.Hertz.EnableAccessLog, err = strconv.ParseBool(v)
+		if err != nil {
+			return nil, err
 		}
 	}
 	if v, ok := os.LookupEnv("XZDP_PPROF"); ok {

@@ -1,7 +1,18 @@
 # *** 小众点评
 
 本项目使用go语言重构黑马点评项目，方便使用go语言的同学学习黑马程序员的redis课程，欢迎一起交流学习。
-[说明文档](./doc/xzdp.md)
+[原项目说明](./docs/xzdp.md)
+
+## 本地运行与验收
+
+```sh
+docker compose up -d --build --wait
+bash script/smoke-phase0.sh
+```
+
+API 在 `127.0.0.1:8081`，Prometheus 在 `:9090`，Grafana 在 `:3000`。六个服务均设置容器内存上限。项目保留 Hertz 单体，按商铺缓存、交易、社交和观测划分职责。秒杀受理后可通过订单号跟踪排队与落库。
+
+[基础设施与 API](docs/phase-0-audit.md) · [多级缓存](docs/phase-1-cache.md) · [订单与社交设计](docs/trade.md) · [架构演进、压测对照与火焰图](docs/performance.md)
 
 ## 介绍
 

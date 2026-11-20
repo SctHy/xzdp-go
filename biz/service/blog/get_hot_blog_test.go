@@ -7,7 +7,6 @@ import (
 	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/alicebob/miniredis/v2"
 	"github.com/cloudwego/hertz/pkg/app"
-	commonTestAssert "github.com/cloudwego/hertz/pkg/common/test/assert"
 	goredis "github.com/go-redis/redis/v8"
 	"gorm.io/driver/mysql"
 	"gorm.io/gorm"
@@ -30,12 +29,7 @@ func TestGetHotBlogService_Run(t *testing.T) {
 	}), &gorm.Config{})
 	mysqlDal.DB = gormDB
 
-	// Broad match to handle potential multiple calls or complex SQL
-	mock.ExpectQuery("SELECT .* FROM `tb_blog`").WillReturnRows(sqlmock.NewRows([]string{"id", "user_id"}).AddRow(1, 1))
-	mock.ExpectQuery("SELECT .* FROM `tb_user`").WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(1))
-	// Add fallback matchers if needed
-	mock.ExpectQuery(".*").WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(1))
-
+	mock.ExpectQuery("SELECT b.*JOIN tb_user").WillReturnRows(sqlmock.NewRows([]string{"id", "user_id", "author_name", "author_icon"}).AddRow(1, 2, "author", "photo"))
 	ctx := context.Background()
 	c := app.NewContext(1)
 	s := NewGetHotBlogService(ctx, c)
@@ -44,7 +38,12 @@ func TestGetHotBlogService_Run(t *testing.T) {
 	resp, err := s.Run(req)
 
 	if err != nil {
-		t.Log("Warning: Run returned error:", err)
+		t.Fatal(err)
 	}
-	commonTestAssert.NotEqual(t, nil, resp)
+	if len(*resp) != 1 || (*resp)[0].NickName != "author" || (*resp)[0].Icon != "photo" {
+		t.Fatalf("unexpected blogs: %+v", resp)
+	}
+	if err = mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
 }

@@ -3,8 +3,10 @@ package interceptor
 import (
 	"context"
 	"errors"
-	"github.com/cloudwego/hertz/pkg/app"
 	"time"
+
+	"github.com/cloudwego/hertz/pkg/app"
+
 	"xzdp/biz/dal/redis"
 	"xzdp/biz/model/user"
 	"xzdp/biz/pkg/constants"
@@ -37,7 +39,13 @@ func CheckToken(ctx context.Context, c *app.RequestContext) {
 		var u user.UserDTO
 		key := constants.LOGIN_USER_KEY + token
 		sessionCtx, cancel := context.WithTimeout(ctx, 300*time.Millisecond)
-		err := redis.RedisClient.HGetAll(sessionCtx, key).Scan(&u)
+		pipe := redis.RedisClient.Pipeline()
+		fields := pipe.HGetAll(sessionCtx, key)
+		pipe.Expire(sessionCtx, key, time.Minute)
+		_, err := pipe.Exec(sessionCtx)
+		if err == nil {
+			err = fields.Scan(&u)
+		}
 		cancel()
 		if err != nil {
 			// Shop reads are viewer-independent and may fall back to MySQL.
@@ -51,7 +59,6 @@ func CheckToken(ctx context.Context, c *app.RequestContext) {
 		}
 		if u.ID > 0 {
 			ctx = utils.SaveUser(ctx, &u)
-			redis.RedisClient.Expire(ctx, key, time.Minute)
 		}
 	}
 	if !publicRoute(string(c.Method()), path) && utils.GetUser(ctx) == nil {

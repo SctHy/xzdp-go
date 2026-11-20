@@ -6,11 +6,14 @@ import (
 	"database/sql"
 	"embed"
 	"fmt"
+	"regexp"
 	"strings"
 )
 
 //go:embed sql/*.sql
 var files embed.FS
+
+var addField = regexp.MustCompile(`(?i)^ALTER TABLE (\w+) ADD (COLUMN|(?:UNIQUE )?(?:INDEX|KEY)) (\w+)`)
 
 func Apply(ctx context.Context, db *sql.DB) error {
 	conn, err := db.Conn(ctx)
@@ -51,18 +54,13 @@ func Apply(ctx context.Context, db *sql.DB) error {
 			if stmt == "" {
 				continue
 			}
-			if strings.HasPrefix(stmt, "ALTER TABLE tb_blog ADD COLUMN like_version") {
-				var present bool
-				if err = conn.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name='tb_blog' AND column_name='like_version')").Scan(&present); err != nil {
-					return err
+			if field := addField.FindStringSubmatch(stmt); field != nil {
+				query := "SELECT EXISTS(SELECT 1 FROM information_schema.statistics WHERE table_schema=DATABASE() AND table_name=? AND index_name=?)"
+				if field[2] == "COLUMN" {
+					query = "SELECT EXISTS(SELECT 1 FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name=? AND column_name=?)"
 				}
-				if present {
-					continue
-				}
-			}
-			if strings.HasPrefix(stmt, "ALTER TABLE tb_voucher_order ADD UNIQUE") {
 				var present bool
-				if err = conn.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM information_schema.statistics WHERE table_schema=DATABASE() AND table_name='tb_voucher_order' AND index_name='uq_order_user_voucher')").Scan(&present); err != nil {
+				if err = conn.QueryRowContext(ctx, query, field[1], field[3]).Scan(&present); err != nil {
 					return err
 				}
 				if present {

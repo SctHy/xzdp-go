@@ -59,6 +59,8 @@ services:
       XZDP_MYSQL_DSN: "xzdp:${MYSQL_PASSWORD:-xzdp-local}@tcp(mysql:3306)/xzdp?parseTime=true&charset=utf8mb4&timeout=3s"
       XZDP_KAFKA_BROKER: kafka:9092
       XZDP_REDIS_ADDRESS: redis:6379
+      XZDP_PPROF: ${XZDP_PPROF:-false}
+      XZDP_ACCESS_LOG: ${XZDP_ACCESS_LOG:-true}
       GOMEMLIMIT: 144MiB
     ports: ["127.0.0.1:${API_PORT:-8081}:8081"]
     depends_on:

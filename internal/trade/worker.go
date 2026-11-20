@@ -4,12 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"github.com/go-redis/redis/v8"
-	"github.com/segmentio/kafka-go"
-	"golang.org/x/sync/errgroup"
 	"log/slog"
 	"strconv"
 	"time"
+
+	"github.com/go-redis/redis/v8"
+	"github.com/segmentio/kafka-go"
+	"golang.org/x/sync/errgroup"
 )
 
 func (s Sale) persist(ctx context.Context, o Order) error {
@@ -188,6 +189,7 @@ func (s Sale) Run(ctx context.Context, broker, env string) error {
 	r := kafka.NewReader(kafka.ReaderConfig{Brokers: []string{broker}, Topic: topic, GroupID: topic + "-db", MaxWait: 100 * time.Millisecond, WatchPartitionChanges: true, PartitionWatchInterval: time.Second, MinBytes: 1, MaxBytes: 1048576})
 	defer r.Close()
 	g, ctx := errgroup.WithContext(ctx)
+	g.Go(func() error { return monitorLag(ctx, &admin, topic) })
 	g.Go(func() error { return s.consume(ctx, r, w, topic) })
 	g.Go(func() error {
 		for ctx.Err() == nil {

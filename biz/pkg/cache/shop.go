@@ -17,6 +17,7 @@ import (
 	"github.com/go-redis/redis/v8"
 	"golang.org/x/sync/singleflight"
 	"gorm.io/gorm"
+
 	"xzdp/biz/model/shop"
 	"xzdp/conf"
 )
@@ -52,18 +53,32 @@ func NewShopCache(env string, cfg conf.ShopCache, rdb *redis.Client, source Shop
 }
 
 func (s *ShopCache) Detail(ctx context.Context, id int64) (*shop.Shop, error) {
+	var result shop.Shop
+	if err := s.detail(ctx, id, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
+// DetailJSON lets HTTP reuse the serialized shop shared by both cache levels.
+func (s *ShopCache) DetailJSON(ctx context.Context, id int64) (json.RawMessage, error) {
+	var data json.RawMessage
+	err := s.detail(ctx, id, &data)
+	return data, err
+}
+
+func (s *ShopCache) detail(ctx context.Context, id int64, out any) error {
 	if id <= 0 {
-		return nil, gorm.ErrRecordNotFound
+		return gorm.ErrRecordNotFound
 	}
 	suffix := strconv.FormatInt(id, 10)
 	filter := s.filter.Load()
 	absent := filter != nil && !filter.TestString(suffix)
 	if absent && s.cfg.TrustBloom {
 		s.rejected.Add(1)
-		return nil, gorm.ErrRecordNotFound
+		return gorm.ErrRecordNotFound
 	}
-	var result shop.Shop
-	err := s.read(ctx, "detail:"+suffix, &result, func(ctx context.Context) (any, error) {
+	return s.read(ctx, "detail:"+suffix, out, func(ctx context.Context) (any, error) {
 		if absent {
 			s.existenceProbes.Add(1)
 			exists, err := s.source.Exists(ctx, id)
@@ -78,10 +93,6 @@ func (s *ShopCache) Detail(ctx context.Context, id int64) (*shop.Shop, error) {
 		s.loads[0].Add(1)
 		return s.source.Detail(ctx, id)
 	})
-	if err != nil {
-		return nil, err
-	}
-	return &result, nil
 }
 
 func (s *ShopCache) Types(ctx context.Context) ([]*shop.ShopType, error) {
@@ -96,6 +107,10 @@ func (s *ShopCache) Types(ctx context.Context) ([]*shop.ShopType, error) {
 func decodeShop(data []byte, out any) error {
 	if string(data) == "null" {
 		return gorm.ErrRecordNotFound
+	}
+	if raw, ok := out.(*json.RawMessage); ok {
+		*raw = data
+		return nil
 	}
 	return json.Unmarshal(data, out)
 }

@@ -3,10 +3,14 @@ package interceptor
 import (
 	"context"
 	"errors"
-	"github.com/cloudwego/hertz/pkg/app"
 	"log/slog"
 	"time"
+
+	"github.com/cloudwego/hertz/pkg/app"
+
 	"xzdp/biz/utils"
+	"xzdp/conf"
+	"xzdp/internal/observe"
 )
 
 func Access(ctx context.Context, c *app.RequestContext) {
@@ -24,7 +28,11 @@ func Access(ctx context.Context, c *app.RequestContext) {
 			c.Abort()
 			slog.ErrorContext(ctx, "request panic", "route", c.FullPath(), "requestId", id)
 		}
-		slog.InfoContext(ctx, "http request", "route", c.FullPath(), "method", string(c.Method()), "status", c.Response.StatusCode(), "code", c.GetString("errorCode"), "requestId", id, "duration", time.Since(start))
+		elapsed := time.Since(start)
+		observe.HTTP(c.FullPath(), c.Response.StatusCode(), elapsed)
+		if conf.GetConf().Hertz.EnableAccessLog || c.Response.StatusCode() >= 400 || c.GetString("errorCode") != "" {
+			slog.InfoContext(ctx, "http request", "route", c.FullPath(), "method", string(c.Method()), "status", c.Response.StatusCode(), "code", c.GetString("errorCode"), "requestId", id, "duration", elapsed)
+		}
 	}()
 	c.Next(ctx)
 }

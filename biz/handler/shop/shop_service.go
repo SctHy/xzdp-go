@@ -4,12 +4,12 @@ import (
 	"context"
 	"strconv"
 
+	"github.com/cloudwego/hertz/pkg/app"
+	"github.com/cloudwego/hertz/pkg/protocol/consts"
+
 	shop "xzdp/biz/model/shop"
 	service "xzdp/biz/service/shop"
 	"xzdp/biz/utils"
-
-	"github.com/cloudwego/hertz/pkg/app"
-	"github.com/cloudwego/hertz/pkg/protocol/consts"
 )
 
 // ShopList .
@@ -68,7 +68,7 @@ func ShopInfo(ctx context.Context, c *app.RequestContext) {
 		return
 	}
 
-	resp, err := service.NewShopInfoService(ctx, c).Run(id)
+	resp, err := service.NewShopInfoService(ctx, c).JSON(id)
 
 	if err != nil {
 		utils.SendErrResponse(ctx, c, consts.StatusOK, err)

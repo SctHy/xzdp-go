@@ -17,14 +17,14 @@ sequenceDiagram
 
 internal/trade/sale.go 管理资格，worker.go 负责传输和落库，http.go 只处理协议。internal/migrate/sql 中的前向 SQL 同时适用于新卷和旧卷。迁移锁串行执行 DDL；历史重复订单会阻止唯一索引创建，运维人员应先核查历史业务数据。消费失败重试三次后写 Kafka DLQ 与 MySQL 死信表。Redis pending 的生命周期独立于订单业务状态。Redis 必须持久化且禁止驱逐交易键。
 
-Redis 前缀为 xzdp:<env>:trade:。v:<id> 保存库存与时间窗口，:buyers 是用户到订单的映射，:token:<user> 是短期凭据；pending 保存未完成的投递记录，relay 按下次投递时间排序。序列键 sequence 不得重置。Kafka 主 topic 为 xzdp-<env>-orders，死信 topic 加 .dlq。
+Redis 前缀为 xzdp:<env>:trade:。v:<id> 保存库存与时间窗口，:buyers 是用户到订单的映射，:token:<user> 是短期凭据；pending 保存未完成的投递记录，relay 按下次投递时间排序。序列键 order-sequence 使用 Redis 64 位整数，从独立编号区间分配；Lua 在资格校验后发号，按字符串返回精确值。部署时保留该键和 AOF。历史订单仍可按原号查询。Kafka 主 topic 为 xzdp-<env>-orders，死信 topic 加 .dlq。
 
 设计对照：[Go Lua 入队](https://github.com/wengyuechuan/hm-dianping-go/blob/main/script/seckill.lua)、[Go Kafka pending 重投](https://github.com/amemiya02/hmdp-go/blob/main/internal/service/voucher_order.go)。本项目使用同一个订单号串起预扣、投递和 DB 凭据。
 
 ## 关单、候补与提醒
 
 POST /voucher-order/cancel/:id 取消本人未支付订单；POST /voucher-order/wait/:id 对售罄的活动候补；POST /voucher-order/subscribe/:id 订阅未开始活动；GET /notifications 返回本人最近 50 条通知。订单状态只在 SQL 中使用条件更新。定时任务扫描超过 15 分钟的未支付订单，复用取消事务。
-数据库迁移 003 增加库存释放事件、订阅与站内通知。释放任务在 Redis 利用订单号去重，将库存交给最早的候补者或退回库存。候补订单复用同一条 Kafka 消费链。订阅提醒在开抢前五分钟写入通知表，再发送到已有 SSE Stream。
+数据库迁移 003 增加库存释放事件、订阅与站内通知。释放任务在 Redis 利用订单号去重，将库存交给最早的候补者或退回库存。候补订单复用同一条 Kafka 消费链。一人一券的唯一约束包含已取消订单，释放的名额可交给其他用户。订阅提醒在开抢前五分钟写入通知表，再发送到已有 SSE Stream。
 参考 [Java Plus 延时通知](https://github.com/java-up-up/hmdp-plus/tree/HEAD/hmdp-core-service/src/main/java/org/javaup/delay/consumer) 和 [go-zero 订单生命周期](https://github.com/me-cs/dianping-gozero/tree/main/rpc/order/internal/logic)。
 
 ## 点赞与关注流
@@ -32,3 +32,34 @@ POST /voucher-order/cancel/:id 取消本人未支付订单；POST /voucher-order
 `internal/social/likes.go` 保留既有点赞用户 ZSet。Lua 同步修改成员关系、计数及脏集合；四个 worker 每秒最多领取 128 个热点笔记，以版本条件写回绝对计数。MySQL 写失败时保留脏记录，同版本成功后才能清理。笔记详情优先显示 Redis 中的即时计数。Redis 使用 AOF；MySQL 中的计数无法单独恢复点赞成员关系。
 
 `internal/social/feed.go` 在发帖事务内记录投递方式。少于一万粉丝的作者向收件箱推送，同一帖子重投使用相同 ZSet member。达到阈值的作者按读请求合并。发布时固定模式，作者之后跨越阈值时旧帖依然可见。迁移见 `004_social.sql`；原有收件箱与分页字段继续使用。缓存键为 `xzdp:<env>:social:like:<blog>` 和 `xzdp:<env>:social:dirty`。参考 Java 版点赞与收件箱的 ZSet 用法，以及 go-zero 版对同分值时间游标的处理。[BlogServiceImpl](https://github.com/java-up-up/hmdp-plus/blob/HEAD/hmdp-core-service/src/main/java/org/javaup/service/impl/BlogServiceImpl.java) · [QueryBlogsOfFollow](https://github.com/me-cs/dianping-gozero/blob/HEAD/rpc/blog/internal/logic/queryblogsoffollowlogic.go)
+
+### 候补转正
+
+```mermaid
+sequenceDiagram
+    participant W as 超时扫描
+    participant D as MySQL
+    participant R as Redis
+    participant K as Kafka
+    W->>D: 事务内关未支付订单、加库存、写释放事件
+    W->>R: 按原订单号去重，取队首候补者
+    R-->>W: 已记录新订单和待投递消息
+    W->>D: 确认释放事件完成
+    W->>K: 转发候补订单
+    K->>D: 幂等写入订单、减库存、写站内信
+```
+
+### 点赞落库
+
+```mermaid
+sequenceDiagram
+    participant H as HTTP
+    participant R as Redis
+    participant W as 刷盘任务
+    participant D as MySQL
+    H->>R: 原子切换点赞关系、计数、版本，并标记脏数据
+    R-->>H: 当前用户的点赞状态
+    W->>R: 读取脏笔记的计数与版本
+    W->>D: 仅在新版本更高时写绝对计数
+    W->>R: 仅在版本仍相同时清除脏标记
+```
