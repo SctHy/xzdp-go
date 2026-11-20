@@ -2,7 +2,10 @@ package user
 
 import (
 	"context"
+	"crypto/rand"
 	"errors"
+	"fmt"
+	"math/big"
 	"time"
 	"xzdp/biz/dal/redis"
 	user "xzdp/biz/model/user"
@@ -23,11 +26,7 @@ func NewSendCodeService(Context context.Context, RequestContext *app.RequestCont
 }
 
 func (h *SendCodeService) Run(req *user.UserLoginFrom) (resp *user.Result, err error) {
-	defer func() {
-		hlog.CtxInfof(h.Context, "req = %+v", req)
-		hlog.CtxInfof(h.Context, "resp = %+v", resp)
-	}()
-	// todo edit your code
+
 	phone := req.Phone
 
 	if !utils.ValidateMobile(phone) {
@@ -37,13 +36,16 @@ func (h *SendCodeService) Run(req *user.UserLoginFrom) (resp *user.Result, err e
 		return nil, errors.New("phone can't be empty")
 	}
 
-	code := utils.GenerateDigits(6)
+	n, err := rand.Int(rand.Reader, big.NewInt(1000000))
+	if err != nil {
+		return nil, err
+	}
+	code := fmt.Sprintf("%06d", n.Int64())
 	err = redis.RedisClient.Set(h.Context, constants.LOGIN_CODE_KEY+phone, code, constants.LOGIN_CODE_EXPIRE*time.Second).Err() // add expiration
 	if err != nil {
 		hlog.CtxErrorf(h.Context, "err = %s", err.Error())
 		return nil, err
 	}
 
-	hlog.CtxInfof(h.Context, "code = %s", code)
 	return &user.Result{Success: true}, nil
 }

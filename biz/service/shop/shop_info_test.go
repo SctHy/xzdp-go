@@ -54,16 +54,15 @@ func TestShopInfoService_Run(t *testing.T) {
 	s := NewShopInfoService(ctx, c)
 
 	// Case 1: Cache Miss, DB Hit
-	mock.ExpectQuery(regexp.QuoteMeta("SELECT * FROM `tb_shop` WHERE id = ? ORDER BY `tb_shop`.`id` LIMIT ?")).
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT * FROM `tb_shop` WHERE `tb_shop`.`id` = ? ORDER BY `tb_shop`.`id` LIMIT ?")).
 		WithArgs(shopId, 1).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "name"}).AddRow(1, "Test Shop"))
 
 	resp, err := s.Run(shopId)
 
-	// Wait a bit for async cache set (goroutine in GetStringLogical)
-	// This helps avoid race condition if test exits before goroutine uses mocked redis
-	// But in unit test with mocks, we just want to ensure main logic passes.
-
 	assert.DeepEqual(t, nil, err)
 	assert.NotEqual(t, nil, resp)
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
 }

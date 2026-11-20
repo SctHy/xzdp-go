@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"xzdp/biz/dal/mysql"
 	"xzdp/biz/dal/redis"
@@ -45,10 +46,6 @@ func NewUserLoginServiceWithDB(ctx context.Context, requestContext *app.RequestC
 }
 
 func (h *UserLoginService) Run(req *model.UserLoginFrom) (resp *model.Result, err error) {
-	defer func() {
-		hlog.CtxInfof(h.Context, "req = %+v", req)
-		hlog.CtxInfof(h.Context, "resp = %+v", resp)
-	}()
 
 	phone := req.Phone
 	code := req.Code
@@ -73,8 +70,7 @@ func (h *UserLoginService) Run(req *model.UserLoginFrom) (resp *model.Result, er
 	}
 
 	var user model.User
-	result := h.DB.Debug().First(&user, "phone = ?", phone)
-	hlog.CtxInfof(h.Context, "result = %+v", result)
+	result := h.DB.WithContext(h.Context).First(&user, "phone = ?", phone)
 
 	if result.Error != nil {
 		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
@@ -89,11 +85,13 @@ func (h *UserLoginService) Run(req *model.UserLoginFrom) (resp *model.Result, er
 
 	var userdto model.UserDTO
 	copier.Copy(&userdto, &user)
-	if err = h.Redis.HMSet(h.Context, constants.LOGIN_USER_KEY+token, map[string]interface{}{
-		"id":        userdto.ID,
-		"nick_name": userdto.NickName,
-		"icon":      userdto.Icon,
-	}).Err(); err != nil {
+	key := constants.LOGIN_USER_KEY + token
+	_, err = h.Redis.TxPipelined(h.Context, func(pipe red.Pipeliner) error {
+		pipe.HSet(h.Context, key, "id", userdto.ID, "nick_name", userdto.NickName, "icon", userdto.Icon)
+		pipe.Expire(h.Context, key, time.Minute)
+		return nil
+	})
+	if err != nil {
 		hlog.CtxErrorf(h.Context, "err = %s", err.Error())
 		hlog.CtxErrorf(h.Context, "userdto = %+v", userdto)
 		return nil, err
@@ -108,7 +106,7 @@ func (h *UserLoginService) createNewUserWithPhone(phone string) (model.User, err
 		NickName: "user_" + utils.RandomString(10),
 	}
 
-	result := h.DB.Debug().Create(&user)
-	hlog.CtxInfof(h.Context, "result = %+v", result)
+	result := h.DB.WithContext(h.Context).Create(&user)
+
 	return user, result.Error
 }

@@ -1,6 +1,7 @@
 package utils
 
 import (
+	cryptorand "crypto/rand"
 	"fmt"
 	"math/rand"
 	"sync"
@@ -49,9 +50,8 @@ func GenerateAlphaNumeric(length int) string {
 func RandomUUID() (string, error) {
 
 	randomBytes := make([]byte, 16)
-	combinedBytes := letterBytes + digitBytes
-	for i := range randomBytes {
-		randomBytes[i] = combinedBytes[rand.Intn(len(combinedBytes))]
+	if _, err := cryptorand.Read(randomBytes); err != nil {
+		return "", err
 	}
 
 	randomBytes[6] &= 0x0f // clear version

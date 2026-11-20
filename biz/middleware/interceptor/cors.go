@@ -2,9 +2,11 @@ package interceptor
 
 import (
 	"context"
+	"errors"
 	"github.com/cloudwego/hertz/pkg/app"
 	"github.com/cloudwego/hertz/pkg/common/hlog"
 	"net/http"
+	"xzdp/biz/utils"
 	"xzdp/conf"
 )
 
@@ -15,7 +17,7 @@ func allowAllCors(ctx context.Context, c *app.RequestContext) {
 	c.Header("Access-Control-Allow-Origin", origin)
 	c.Header("Access-Control-Allow-Headers", "Content-Type,AccessToken,X-CSRF-Token, Authorization, Token,X-Token,X-User-Id")
 	c.Header("Access-Control-Allow-Methods", "POST, GET, OPTIONS,DELETE,PUT")
-	c.Header("Access-Control-Expose-Headers", "Content-Length, Access-Control-Allow-Origin, Access-Control-Allow-Headers, Content-Type")
+	c.Header("Access-Control-Expose-Headers", "X-Request-ID, Content-Length, Access-Control-Allow-Origin, Access-Control-Allow-Headers, Content-Type")
 	c.Header("Access-Control-Allow-Credentials", "true")
 
 	if string(method) == "OPTIONS" {
@@ -48,7 +50,8 @@ func Cors(ctx context.Context, c *app.RequestContext) {
 
 	// 严格白名单模式且未通过检查，直接拒绝处理请求
 	if whitelist == nil && mode == "strict-whitelist" && !(string(c.Request.Method()) == "GET") {
-		c.AbortWithStatus(http.StatusForbidden)
+		utils.SendErrResponse(ctx, c, http.StatusForbidden, errors.New("origin forbidden"))
+		c.Abort()
 		return
 	} else {
 		// 非严格白名单模式，无论是否通过检查均放行除了所有 OPTIONS 方法

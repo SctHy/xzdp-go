@@ -20,16 +20,18 @@ var (
 
 type ArgsFunc func(args ...interface{}) (interface{}, error)
 
-func Init() {
+func Open(ctx context.Context) error {
 	RedisClient = redis.NewClient(&redis.Options{
 		Addr:     conf.GetConf().Redis.Address,
 		Password: conf.GetConf().Redis.Password,
 	})
-	if err := RedisClient.Ping(context.Background()).Err(); err != nil {
-		panic(err)
+	if err := RedisClient.Ping(ctx).Err(); err != nil {
+		RedisClient.Close()
+		return err
 	}
 	pool := goredis.NewPool(RedisClient)
 	RedsyncClient = redsync.New(pool)
+	return nil
 }
 
 func SetString(ctx context.Context, key string, value interface{}, duration time.Duration) error {
@@ -67,20 +69,21 @@ func SetStringLogical(ctx context.Context, key string, value interface{}, durati
 func GetStringLogical(ctx context.Context, key string, duration time.Duration, dbFallback ArgsFunc, args ...interface{}) (string, error) {
 	redisJson, err := RedisClient.Get(ctx, key).Result()
 	lock := NewLock(ctx, constants.LOCK_KEY+key, "lock", duration)
-	if redisJson == "" || errors.Is(err, redis.Nil) {
-		if lock.TryLock() {
-			go func() {
-				defer lock.UnLock("lock")
-				data, err := dbFallback(args...)
-				if err != nil {
-					return
-				}
-				err = SetStringLogical(ctx, key, data, duration)
-				if err != nil {
-					return
-				}
-			}()
+	if errors.Is(err, redis.Nil) || (err == nil && redisJson == "") {
+		data, err := dbFallback(args...)
+		if err != nil {
+			return "", err
 		}
+		encoded, err := json.Marshal(data)
+		if err != nil {
+			return "", err
+		}
+		if err = SetStringLogical(ctx, key, data, duration); err != nil {
+			return "", err
+		}
+		return string(encoded), nil
+	} else if err != nil {
+		return "", err
 	} else {
 		var redisData cache.RedisStringData
 		if err := json.Unmarshal([]byte(redisJson), &redisData); err != nil {
@@ -105,5 +108,4 @@ func GetStringLogical(ctx context.Context, key string, duration time.Duration, d
 			return redisData.Data, nil
 		}
 	}
-	return "", nil
 }

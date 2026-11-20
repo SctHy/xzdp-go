@@ -2,7 +2,6 @@ package message
 
 import (
 	"context"
-	"time"
 
 	service "xzdp/biz/service/message"
 
@@ -39,33 +38,11 @@ func Sse(ctx context.Context, c *app.RequestContext) {
 				Data:  []byte(*resp),
 			}
 			hlog.Debugf("SSE event: %v", event)
-			err = s.Publish(event)
-			if err := PublishWithRetry(s, event); err != nil {
+
+			if err := s.Publish(event); err != nil {
 				hlog.Errorf("Error publishing SSE event: %v", err)
+				return
 			}
 		}
 	}
-}
-
-// PublishWithRetry 尝试发布事件，如果失败则重试
-func PublishWithRetry(s *sse.Stream, event *sse.Event) error {
-	maxRetries := 3           // 最大重试次数
-	retryDelay := time.Second // 重试间隔时间
-
-	for i := 0; i <= maxRetries; i++ {
-		err := s.Publish(event)
-		if err == nil {
-			return nil
-		}
-
-		if i < maxRetries {
-			hlog.Errorf("Publish failed, retrying... (attempt %d/%d)", i+1, maxRetries)
-			time.Sleep(retryDelay)
-		} else {
-			hlog.Errorf("Publish failed after %d attempts, giving up.", maxRetries)
-			return err
-		}
-	}
-
-	return nil
 }

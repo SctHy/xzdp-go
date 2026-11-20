@@ -29,7 +29,7 @@ func QueryHotBlog(ctx context.Context, current int) (resp []*blog.Blog, err erro
 	var blogs []*blog.Blog
 	pageSize := constants.MAX_PAGE_SIZE
 
-	if err := DB.Order("liked desc").Limit(pageSize).Offset((current - 1) * pageSize).Find(&blogs).Error; err != nil {
+	if err := DB.WithContext(ctx).Order("liked desc").Limit(pageSize).Offset((current - 1) * pageSize).Find(&blogs).Error; err != nil {
 		hlog.CtxErrorf(ctx, "err = %s", err.Error())
 		return nil, err
 	}
@@ -41,7 +41,7 @@ func QueryHotBlog(ctx context.Context, current int) (resp []*blog.Blog, err erro
 
 			return nil, err
 		}
-		if err := DB.First(&u, blogs[i].UserId).Error; err != nil {
+		if err := DB.WithContext(ctx).First(&u, blogs[i].UserId).Error; err != nil {
 			hlog.CtxErrorf(ctx, "err = %s", err.Error())
 
 			return nil, err

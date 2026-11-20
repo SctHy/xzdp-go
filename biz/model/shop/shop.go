@@ -881,22 +881,22 @@ func (p *ShopOfTypeGeoReq) String() string {
 }
 
 type Shop struct {
-	ID         int64   `thrift:"id,1" gorm:"id",redis:"id" form:"id" json:"id" query:"id"`
-	Name       string  `thrift:"name,2" gorm:"name",redis:"name" form:"name" json:"name" query:"name"`
-	TypeId     int64   `thrift:"typeId,3" gorm:"type_id",redis:"typeId" form:"typeId" json:"typeId" query:"typeId"`
-	Images     string  `thrift:"images,4" gorm:"images",redis:"images" form:"images" json:"images" query:"images"`
-	Area       string  `thrift:"area,5" gorm:"area",redis:"area" form:"area" json:"area" query:"area"`
-	Address    string  `thrift:"address,6" gorm:"address",redis:"address" form:"address" json:"address" query:"address"`
-	X          float64 `thrift:"x,7" gorm:"longitude",redis:"longitude" form:"x" json:"x" query:"x"`
-	Y          float64 `thrift:"y,8" gorm:"latitude",redis:"latitude" form:"y" json:"y" query:"y"`
-	AvgPrice   int64   `thrift:"avgPrice,9" gorm:"avg_price",redis:"avgPrice" form:"avgPrice" json:"avgPrice" query:"avgPrice"`
-	Sold       int32   `thrift:"sold,10" gorm:"sold",redis:"sold" form:"sold" json:"sold" query:"sold"`
-	Comments   int32   `thrift:"comments,11" gorm:"comments",redis:"comments" form:"comments" json:"comments" query:"comments"`
-	Score      int32   `thrift:"score,12" gorm:"score",redis:"score" form:"score" json:"score" query:"score"`
-	OpenHours  string  `thrift:"openHours,13" gorm:"open_hours",redis:"openHours" form:"openHours" json:"openHours" query:"openHours"`
-	CreateTime string  `thrift:"createTime,14" gorm:"create_time",redis:"createTime" form:"createTime" json:"createTime" query:"createTime"`
-	UpdateTime string  `thrift:"updateTime,15" gorm:"update_time",redis:"updateTime" form:"updateTime" json:"updateTime" query:"updateTime"`
-	Distance   float64 `thrift:"distance,16" gorm:"-",redis:"-" form:"distance" json:"distance" query:"distance"`
+	ID         int64   `thrift:"id,1" gorm:"id" redis:"id" form:"id" json:"id" query:"id"`
+	Name       string  `thrift:"name,2" gorm:"name" redis:"name" form:"name" json:"name" query:"name"`
+	TypeId     int64   `thrift:"typeId,3" gorm:"type_id" redis:"typeId" form:"typeId" json:"typeId" query:"typeId"`
+	Images     string  `thrift:"images,4" gorm:"images" redis:"images" form:"images" json:"images" query:"images"`
+	Area       string  `thrift:"area,5" gorm:"area" redis:"area" form:"area" json:"area" query:"area"`
+	Address    string  `thrift:"address,6" gorm:"address" redis:"address" form:"address" json:"address" query:"address"`
+	X          float64 `thrift:"x,7" gorm:"longitude" redis:"longitude" form:"x" json:"x" query:"x"`
+	Y          float64 `thrift:"y,8" gorm:"latitude" redis:"latitude" form:"y" json:"y" query:"y"`
+	AvgPrice   int64   `thrift:"avgPrice,9" gorm:"avg_price" redis:"avgPrice" form:"avgPrice" json:"avgPrice" query:"avgPrice"`
+	Sold       int32   `thrift:"sold,10" gorm:"sold" redis:"sold" form:"sold" json:"sold" query:"sold"`
+	Comments   int32   `thrift:"comments,11" gorm:"comments" redis:"comments" form:"comments" json:"comments" query:"comments"`
+	Score      int32   `thrift:"score,12" gorm:"score" redis:"score" form:"score" json:"score" query:"score"`
+	OpenHours  string  `thrift:"openHours,13" gorm:"open_hours" redis:"openHours" form:"openHours" json:"openHours" query:"openHours"`
+	CreateTime string  `thrift:"createTime,14" gorm:"create_time" redis:"createTime" form:"createTime" json:"createTime" query:"createTime"`
+	UpdateTime string  `thrift:"updateTime,15" gorm:"update_time" redis:"updateTime" form:"updateTime" json:"updateTime" query:"updateTime"`
+	Distance   float64 `thrift:"distance,16" gorm:"-" redis:"-" form:"distance" json:"distance" query:"distance"`
 }
 
 func NewShop() *Shop {

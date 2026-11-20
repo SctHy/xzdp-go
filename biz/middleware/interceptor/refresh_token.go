@@ -2,61 +2,54 @@ package interceptor
 
 import (
 	"context"
+	"errors"
 	"github.com/cloudwego/hertz/pkg/app"
-	"github.com/cloudwego/hertz/pkg/common/hlog"
 	"time"
 	"xzdp/biz/dal/redis"
-	model "xzdp/biz/model/user"
+	"xzdp/biz/model/user"
 	"xzdp/biz/pkg/constants"
 	"xzdp/biz/utils"
-	"xzdp/conf"
 )
 
-func CheckToken(ctx context.Context, c *app.RequestContext) {
-	hlog.CtxInfof(ctx, "check token interceptor:%+v", conf.GetEnv())
-	//if conf.GetEnv() != "online" {
-	//	userdto := model.UserDTO{
-	//		ID:       2,
-	//		NickName: "法外狂徒张三",
-	//		Icon:     "https://img2.baidu.com/it/u=194756667,2850459164&fm=253&fmt=auto&app=138&f=JPEG?w=500&h=500",
-	//	}
-	//	ctx = utils.SaveUser(ctx, &userdto)
-	//	c.Next(ctx)
-	//	return
-	//}
-	token := c.GetHeader("authorization")
-	if token == nil {
-		c.Next(ctx)
+func publicRoute(method, path string) bool {
+	if method == "POST" {
+		return path == "/user/login" || path == "/user/code"
 	}
-	hlog.CtxInfof(ctx, "token = %s", token)
-	if len(token) == 0 {
-		c.Next(ctx)
+	if method != "GET" {
+		return false
 	}
-	var userdto model.UserDTO
-	if err := redis.RedisClient.HGetAll(ctx, constants.LOGIN_USER_KEY+string(token)).Scan(&userdto); err != nil {
-		c.Next(ctx)
+	switch path {
+	case "/ping", "/hello", "/shop/:id", "/shop/of/type", "/shop/of/type/geo", "/shop-type/list", "/voucher/list/:id", "/blog/hot", "/blog/:id", "/blog/user/:id", "/blog/likes/:id", "/imgs/*filepath":
+		return true
 	}
-	if userdto == (model.UserDTO{}) {
-		c.Next(ctx)
-	}
-	redis.RedisClient.Expire(ctx, constants.LOGIN_USER_KEY+string(token), time.Minute*1)
-	ctx = utils.SaveUser(ctx, &userdto)
-	c.Next(ctx)
-	if utils.GetUser(ctx) == nil {
-		hlog.CtxErrorf(ctx, "check token interceptor error")
-	}
-	hlog.CtxDebugf(ctx, "user = %+v", utils.GetUser(ctx))
+	return false
 }
 
-func LoginInterceptor(ctx context.Context, c *app.RequestContext) {
-	hlog.CtxInfof(ctx, "login interceptor")
-	if conf.GetEnv() == "dev" {
+func CheckToken(ctx context.Context, c *app.RequestContext) {
+	path := c.FullPath()
+	switch path {
+	case "/health/live", "/health/ready", "/metrics":
 		c.Next(ctx)
 		return
 	}
-	if utils.GetUser(ctx) == nil {
-		c.SetStatusCode(401)
+	token := string(c.GetHeader("authorization"))
+	if token != "" {
+		var u user.UserDTO
+		key := constants.LOGIN_USER_KEY + token
+		if err := redis.RedisClient.HGetAll(ctx, key).Scan(&u); err != nil {
+			utils.SendErrResponse(ctx, c, 503, errors.New("session store unavailable"))
+			c.Abort()
+			return
+		}
+		if u.ID > 0 {
+			ctx = utils.SaveUser(ctx, &u)
+			redis.RedisClient.Expire(ctx, key, time.Minute)
+		}
+	}
+	if !publicRoute(string(c.Method()), path) && utils.GetUser(ctx) == nil {
+		utils.SendErrResponse(ctx, c, 401, errors.New("请先登录"))
 		c.Abort()
+		return
 	}
 	c.Next(ctx)
 }

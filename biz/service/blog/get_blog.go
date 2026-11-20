@@ -23,12 +23,7 @@ func NewGetBlogService(Context context.Context, RequestContext *app.RequestConte
 }
 
 func (h *GetBlogService) Run(req *string) (resp *blog.Blog, err error) {
-	//defer func() {
-	// hlog.CtxInfof(h.Context, "req = %+v", req)
-	// hlog.CtxInfof(h.Context, "resp = %+v", resp)
-	//}()
-	// todo edit your code
-	if !errors.Is(mysql.DB.First(&resp, "id = ?", req).Error, nil) {
+	if !errors.Is(mysql.DB.WithContext(h.Context).First(&resp, "id = ?", req).Error, nil) {
 		return nil, errors.New("未找到该博客")
 	}
 	userId := resp.UserId
@@ -40,7 +35,11 @@ func (h *GetBlogService) Run(req *string) (resp *blog.Blog, err error) {
 	resp.NickName = user.NickName
 	resp.IsLiked = false
 	// 获取点赞状态
-	u := utils.GetUser(h.Context).GetID()
+	viewer := utils.GetUser(h.Context)
+	if viewer == nil {
+		return resp, nil
+	}
+	u := viewer.GetID()
 	key := constants.BLOG_LIKED_KEY + *req
 	isLike, err := redis.IsLiked(h.Context, key, strconv.FormatInt(u, 10))
 	if err != nil {

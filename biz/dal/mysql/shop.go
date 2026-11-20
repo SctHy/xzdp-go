@@ -16,7 +16,7 @@ import (
 func QueryShopType(ctx context.Context) ([]*shop.ShopType, error) {
 	var shopTypeList []*shop.ShopType
 
-	err = DB.WithContext(ctx).Order("sort asc").Find(&shopTypeList).Error
+	err := DB.WithContext(ctx).Order("sort asc").Find(&shopTypeList).Error
 	if err != nil {
 		return nil, err
 	}
@@ -30,7 +30,7 @@ func QueryShopType(ctx context.Context) ([]*shop.ShopType, error) {
 
 func QueryByID(ctx context.Context, id int64) (*shop.Shop, error) {
 	var shop shop.Shop
-	err = DB.WithContext(ctx).First(&shop, id).Error
+	err := DB.WithContext(ctx).First(&shop, id).Error
 
 	if err != nil {
 		return nil, err

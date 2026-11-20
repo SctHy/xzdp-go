@@ -12,7 +12,7 @@ import (
 func GetById(ctx context.Context, id int64) (*model.User, error) {
 
 	var user model.User
-	db := DB.Model(&model.User{})
+	db := DB.WithContext(ctx).Model(&model.User{})
 
 	// Perform the query
 	if err := db.First(&user, "id = ?", id).Error; err != nil {
@@ -31,7 +31,7 @@ func GetById(ctx context.Context, id int64) (*model.User, error) {
 func GetUserInfoById(ctx context.Context, db *gorm.DB, id int64) (*model.UserInfo, error) {
 
 	var user model.UserInfo
-	db = db.Model(&model.UserInfo{})
+	db = db.WithContext(ctx).Model(&model.UserInfo{})
 
 	// Perform the query
 	if err := db.First(&user, "user_id = ?", id).Error; err != nil {

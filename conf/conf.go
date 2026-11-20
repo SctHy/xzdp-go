@@ -1,11 +1,10 @@
 package conf
 
 import (
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
-	"runtime"
+	"strconv"
 	"sync"
 
 	"github.com/cloudwego/hertz/pkg/common/hlog"
@@ -14,8 +13,9 @@ import (
 )
 
 var (
-	conf *Config
-	once sync.Once
+	conf      *Config
+	configErr error
+	once      sync.Once
 )
 
 type Config struct {
@@ -57,42 +57,52 @@ type CORSWhitelist struct {
 
 type Cors struct {
 	Mode      string          `yaml:"mode"`
-	WhiteList []CORSWhitelist `yaml:"white_list"`
+	WhiteList []CORSWhitelist `yaml:"whitelist"`
 }
 
 // GetConf gets configuration instance
 func GetConf() *Config {
-	once.Do(initConf)
-	return conf
+	c, err := Current()
+	if err != nil {
+		panic(err)
+	}
+	return c
 }
 
-func initConf() {
-	_, confpath, _, ok := runtime.Caller(0)
-	if !ok {
-		panic(errors.New("error"))
-	}
-	prefix := confpath[0 : len(confpath)-7]
-	confFileRelPath := filepath.Join(prefix, filepath.Join(GetEnv(), "conf.yaml"))
-	fmt.Println(confFileRelPath)
-	content, err := os.ReadFile(confFileRelPath) // replace the deprecated ioutil.ReadFile to os.ReadFile
-	if err != nil {
-		panic(err)
-	}
+func Current() (*Config, error) {
+	once.Do(func() { conf, configErr = Load() })
+	return conf, configErr
+}
 
-	conf = new(Config)
-	err = yaml.Unmarshal(content, conf)
-	if err != nil {
-		hlog.Error("parse yaml error - %v", err)
-		panic(err)
+func Load() (*Config, error) {
+	c := Config{Env: GetEnv(), Hertz: Hertz{Address: ":8081", LogLevel: "info"}, MySQL: MySQL{DSN: "xzdp:xzdp-local@tcp(127.0.0.1:3306)/xzdp?parseTime=true&timeout=3s"}, Redis: Redis{Address: "127.0.0.1:6379"}, Cors: Cors{Mode: "allow-all"}}
+	path, explicit := os.LookupEnv("XZDP_CONFIG")
+	if !explicit {
+		path = filepath.Join("conf", c.Env, "conf.yaml")
 	}
-	if err := validator.Validate(conf); err != nil {
-		hlog.Error("validate config error - %v", err)
-		panic(err)
+	data, err := os.ReadFile(path)
+	if err == nil {
+		if err = yaml.UnmarshalStrict(data, &c); err != nil {
+			return nil, fmt.Errorf("parse config: %w", err)
+		}
+	} else if explicit || !os.IsNotExist(err) {
+		return nil, err
 	}
-
-	conf.Env = GetEnv()
-
-	//pretty.Printf("%+v\n", conf)
+	for key, dest := range map[string]*string{"XZDP_HTTP_ADDRESS": &c.Hertz.Address, "XZDP_LOG_LEVEL": &c.Hertz.LogLevel, "XZDP_MYSQL_DSN": &c.MySQL.DSN, "XZDP_REDIS_ADDRESS": &c.Redis.Address, "XZDP_REDIS_PASSWORD": &c.Redis.Password} {
+		if v, ok := os.LookupEnv(key); ok {
+			*dest = v
+		}
+	}
+	if v, ok := os.LookupEnv("XZDP_PPROF"); ok {
+		c.Hertz.EnablePprof, err = strconv.ParseBool(v)
+		if err != nil {
+			return nil, err
+		}
+	}
+	if c.Hertz.Address == "" || c.Redis.Address == "" || c.MySQL.DSN == "" {
+		return nil, fmt.Errorf("empty HTTP, MySQL or Redis configuration")
+	}
+	return &c, validator.Validate(&c)
 }
 
 func GetEnv() string {

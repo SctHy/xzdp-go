@@ -2,6 +2,8 @@ package mysql
 
 import (
 	"context"
+	"database/sql"
+	_ "github.com/go-sql-driver/mysql"
 	"gorm.io/driver/mysql"
 	"gorm.io/gorm"
 	"gorm.io/gorm/schema"
@@ -9,14 +11,24 @@ import (
 	"xzdp/conf"
 )
 
-var (
-	DB  *gorm.DB
-	err error
-)
+var DB *gorm.DB
 
-func Init() {
-	DB, err = gorm.Open(mysql.Open(conf.GetConf().MySQL.DSN),
+func Open(ctx context.Context) (*sql.DB, error) {
+	pool, err := sql.Open("mysql", conf.GetConf().MySQL.DSN)
+	if err != nil {
+		return nil, err
+	}
+	pool.SetMaxOpenConns(16)
+	pool.SetMaxIdleConns(4)
+	pool.SetConnMaxLifetime(5 * time.Minute)
+	if err = pool.PingContext(ctx); err != nil {
+		pool.Close()
+		return nil, err
+	}
+
+	DB, err = gorm.Open(mysql.New(mysql.Config{Conn: pool, SkipInitializeWithVersion: true}),
 		&gorm.Config{
+			DisableAutomaticPing:   true,
 			PrepareStmt:            true,
 			SkipDefaultTransaction: true,
 			NamingStrategy: schema.NamingStrategy{
@@ -25,16 +37,20 @@ func Init() {
 			},
 		},
 	)
+	if err != nil {
+		pool.Close()
+		return nil, err
+	}
 	//全局注册创建时间
 	DB.Callback().Create().Before("gorm:create").Register("update_timestamps_before_create", func(tx *gorm.DB) {
 		if tx.Error == nil {
 			now := time.Now().Format("2006-01-02 15:04:05")
 			if tx.Statement.Schema != nil {
 				if createTimeField := tx.Statement.Schema.LookUpField("create_time"); createTimeField != nil {
-					createTimeField.Set(context.Background(), tx.Statement.ReflectValue, now)
+					createTimeField.Set(tx.Statement.Context, tx.Statement.ReflectValue, now)
 				}
 				if createTimeField := tx.Statement.Schema.LookUpField("update_time"); createTimeField != nil {
-					createTimeField.Set(context.Background(), tx.Statement.ReflectValue, now)
+					createTimeField.Set(tx.Statement.Context, tx.Statement.ReflectValue, now)
 				}
 			}
 		}
@@ -45,19 +61,10 @@ func Init() {
 			now := time.Now().Format("2006-01-02 15:04:05")
 			if tx.Statement.Schema != nil {
 				if updateTimeField := tx.Statement.Schema.LookUpField("update_time"); updateTimeField != nil {
-					_ = updateTimeField.Set(context.Background(), tx.Statement.ReflectValue, now)
+					_ = updateTimeField.Set(tx.Statement.Context, tx.Statement.ReflectValue, now)
 				}
 			}
 		}
 	})
-	if err != nil {
-		panic(err)
-	}
-	//autoMigrateTable()
+	return pool, nil
 }
-
-//func autoMigrateTable() {
-//	DB.AutoMigrate(
-//		&model.User{},
-//	)
-//}
