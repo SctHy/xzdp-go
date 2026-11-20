@@ -19,6 +19,12 @@ require (
 )
 
 require (
+	github.com/klauspost/compress v1.15.9 // indirect
+	github.com/pierrec/lz4/v4 v4.1.15 // indirect
+	github.com/segmentio/kafka-go v0.4.47 // indirect
+)
+
+require (
 	github.com/DATA-DOG/go-sqlmock v1.5.2 // indirect
 	github.com/alicebob/gopher-json v0.0.0-20200520072559-a9ecdc9d1d3a // indirect
 	github.com/alicebob/miniredis/v2 v2.33.0 // indirect
