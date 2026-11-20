@@ -19,7 +19,7 @@ import (
 	"github.com/cloudwego/hertz/pkg/common/hlog"
 	"golang.org/x/sync/errgroup"
 
-	"xzdp/biz/dal/mysql"
+	"xzdp/biz/dal/postgres"
 	"xzdp/biz/dal/redis"
 	"xzdp/biz/handler/health"
 	"xzdp/biz/middleware/interceptor"
@@ -66,16 +66,16 @@ func run(ctx context.Context) error {
 	hlog.SetLevel(conf.LogLevel())
 	startup, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
-	pool, err := mysql.Open(startup)
+	pool, err := postgres.Open(startup)
 	if err != nil {
-		return fmt.Errorf("open MySQL: %w", err)
+		return fmt.Errorf("open Postgres: %w", err)
 	}
 	defer pool.Close()
 	if err = redis.Open(startup); err != nil {
 		return fmt.Errorf("open Redis: %w", err)
 	}
 	defer redis.RedisClient.Close()
-	if err = migrate.Apply(ctx, pool); err != nil {
+	if err = migrate.Install(ctx, pool, os.Getenv("XZDP_SEED_DEMO") == "true"); err != nil {
 		return err
 	}
 	geo := nearby.Index{DB: pool, Redis: redis.RedisClient, Prefix: nearby.Prefix(cfg.Env)}
@@ -100,7 +100,7 @@ func run(ctx context.Context) error {
 	cacheGroup.Go(func() error { shopCache.Subscribe(workers); return nil })
 	cacheGroup.Go(func() error { shopCache.Warm(workers); return nil })
 	defer func() { stopWorkers(); cacheGroup.Wait() }()
-	checks := &health.Checks{MySQL: pool.PingContext, Redis: func(ctx context.Context) error { return redis.RedisClient.Ping(ctx).Err() }}
+	checks := &health.Checks{Postgres: pool.PingContext, Redis: func(ctx context.Context) error { return redis.RedisClient.Ping(ctx).Err() }}
 	h := server.New(server.WithHostPorts(cfg.Hertz.Address))
 	streams, endStreams := context.WithCancel(context.Background())
 	defer endStreams()

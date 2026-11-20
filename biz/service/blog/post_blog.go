@@ -5,7 +5,7 @@ import (
 
 	"github.com/cloudwego/hertz/pkg/app"
 
-	"xzdp/biz/dal/mysql"
+	"xzdp/biz/dal/postgres"
 	"xzdp/biz/model/blog"
 	"xzdp/biz/utils"
 	"xzdp/conf"
@@ -24,7 +24,7 @@ func NewPostBlogService(Context context.Context, RequestContext *app.RequestCont
 func (h *PostBlogService) Run(req *blog.Blog) (resp *blog.Blog, err error) {
 	u := utils.GetUser(h.Context)
 	req.UserId = u.GetID()
-	if err := social.Publish(h.Context, mysql.DB, req, conf.GetConf().FeedThreshold); err != nil {
+	if err := social.Publish(h.Context, postgres.DB, req, conf.GetConf().FeedThreshold); err != nil {
 		return nil, err
 	}
 	req.Icon = u.Icon

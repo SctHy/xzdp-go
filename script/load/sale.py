@@ -20,7 +20,7 @@ def compose(service, args, data=None):
 
 
 def sql(text):
-    return compose("mysql", ["sh", "-c", 'MYSQL_PWD="$MYSQL_PASSWORD" mysql -N -uxzdp xzdp'], text)
+    return compose("postgres", ["psql", "-XqAt", "-F", "\t", "-v", "ON_ERROR_STOP=1", "-U", "xzdp", "-d", "xzdp"], text)
 
 
 def sessions(users):
@@ -65,7 +65,7 @@ async def request(path, auth, sale_token="", gate=None, method="POST"):
 
 async def run():
     sql(
-        f"INSERT INTO tb_seckill_voucher(voucher_id,stock,begin_time,end_time) VALUES({VOUCHER},{STOCK},NOW()-INTERVAL 1 MINUTE,NOW()+INTERVAL 1 HOUR)"
+        f"INSERT INTO tb_seckill_voucher(voucher_id,stock,begin_time,end_time) VALUES({VOUCHER},{STOCK},NOW()-INTERVAL '1 minute',NOW()+INTERVAL '1 hour')"
     )
     users = sessions(USERS)
     sem = asyncio.Semaphore(50)

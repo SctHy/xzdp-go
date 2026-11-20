@@ -3,7 +3,7 @@ package voucher
 import (
 	"context"
 	"github.com/cloudwego/hertz/pkg/app"
-	"xzdp/biz/dal/mysql"
+	"xzdp/biz/dal/postgres"
 	voucher "xzdp/biz/model/voucher"
 )
 
@@ -17,6 +17,6 @@ func NewVoucherListService(Context context.Context, RequestContext *app.RequestC
 }
 
 func (h *VoucherListService) Run(id int64) (resp *[]*voucher.SeckillVoucher, err error) {
-	result, err := mysql.QueryShopVoucherByShopID(h.Context, id)
+	result, err := postgres.QueryShopVoucherByShopID(h.Context, id)
 	return &result, nil
 }

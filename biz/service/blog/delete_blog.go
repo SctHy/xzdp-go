@@ -7,7 +7,7 @@ import (
 	"github.com/cloudwego/hertz/pkg/app"
 	"gorm.io/gorm"
 
-	"xzdp/biz/dal/mysql"
+	"xzdp/biz/dal/postgres"
 	"xzdp/biz/model/blog"
 	"xzdp/biz/utils"
 )
@@ -27,7 +27,7 @@ func (h *DeleteBlogService) Run(req *string) (resp *blog.Empty, err error) {
 		return nil, err
 	}
 	owner := utils.GetUser(h.Context).GetID()
-	err = mysql.DB.WithContext(h.Context).Transaction(func(tx *gorm.DB) error {
+	err = postgres.DB.WithContext(h.Context).Transaction(func(tx *gorm.DB) error {
 		deleted := tx.Where("id=? AND user_id=?", bid, owner).Delete(&blog.Blog{})
 		if deleted.Error != nil {
 			return deleted.Error

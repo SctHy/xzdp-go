@@ -16,7 +16,7 @@ import (
 	"github.com/cloudwego/hertz/pkg/app"
 	"github.com/cloudwego/hertz/pkg/app/server"
 	"github.com/go-redis/redis/v8"
-	"github.com/go-sql-driver/mysql"
+	"github.com/jackc/pgx/v5/pgconn"
 
 	"xzdp/biz/utils"
 	"xzdp/internal/api"
@@ -128,10 +128,10 @@ func (s Service) complete(purpose string) app.HandlerFunc {
 		}
 		if purpose == "bind" {
 			id := utils.GetUser(ctx).ID
-			_, e = s.DB.ExecContext(ctx, "INSERT INTO user_email VALUES(?,?)", id, v.Email)
+			_, e = s.DB.ExecContext(ctx, "INSERT INTO user_email VALUES($1,$2)", id, v.Email)
 			if duplicate(e) {
 				var bound string
-				if err := s.DB.QueryRowContext(ctx, "SELECT email FROM user_email WHERE user_id=?", id).Scan(&bound); err == nil && bound == v.Email {
+				if err := s.DB.QueryRowContext(ctx, "SELECT email FROM user_email WHERE user_id=$1", id).Scan(&bound); err == nil && bound == v.Email {
 					return "bound", nil
 				}
 				return nil, api.Problem("邮箱或账号已有绑定")
@@ -143,18 +143,18 @@ func (s Service) complete(purpose string) app.HandlerFunc {
 			return nil, e
 		}
 		var nick, icon string
-		e = s.DB.QueryRowContext(ctx, "SELECT COALESCE(nick_name,''),COALESCE(icon,'') FROM tb_user WHERE id=?", id).Scan(&nick, &icon)
+		e = s.DB.QueryRowContext(ctx, "SELECT COALESCE(nick_name,''),COALESCE(icon,'') FROM tb_user WHERE id=$1", id).Scan(&nick, &icon)
 		if e != nil {
 			return nil, e
 		}
 		return utils.CreateSession(ctx, s.Redis, id, nick, icon)
 	})
 }
-func duplicate(e error) bool { var m *mysql.MySQLError; return errors.As(e, &m) && m.Number == 1062 }
+func duplicate(e error) bool { var m *pgconn.PgError; return errors.As(e, &m) && m.Code == "23505" }
 func (s Service) account(ctx context.Context, email string) (int64, error) {
 	lookup := func() (int64, error) {
 		var id int64
-		e := s.DB.QueryRowContext(ctx, "SELECT user_id FROM user_email WHERE email=?", email).Scan(&id)
+		e := s.DB.QueryRowContext(ctx, "SELECT user_id FROM user_email WHERE email=$1", email).Scan(&id)
 		return id, e
 	}
 	id, e := lookup()
@@ -166,15 +166,11 @@ func (s Service) account(ctx context.Context, email string) (int64, error) {
 		return 0, e
 	}
 	defer tx.Rollback()
-	r, e := tx.ExecContext(ctx, "INSERT INTO tb_user(nick_name) VALUES(?)", "user_"+utils.RandomString(10))
+	e = tx.QueryRowContext(ctx, "INSERT INTO tb_user(nick_name) VALUES($1) RETURNING id", "user_"+utils.RandomString(10)).Scan(&id)
 	if e != nil {
 		return 0, e
 	}
-	id, e = r.LastInsertId()
-	if e != nil {
-		return 0, e
-	}
-	_, e = tx.ExecContext(ctx, "INSERT INTO user_email VALUES(?,?)", id, email)
+	_, e = tx.ExecContext(ctx, "INSERT INTO user_email VALUES($1,$2)", id, email)
 	if duplicate(e) {
 		tx.Rollback()
 		return lookup()

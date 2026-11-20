@@ -22,7 +22,7 @@ func (s Store) RefreshRank(ctx context.Context) error {
 		if err != nil || ttl > 60*time.Second {
 			return err
 		}
-		rows, err := s.DB.QueryContext(ctx, "SELECT b.id FROM tb_blog b JOIN tb_user u ON u.id=b.user_id ORDER BY b.liked DESC,b.id DESC LIMIT ?", rankCapacity)
+		rows, err := s.DB.QueryContext(ctx, "SELECT b.id FROM tb_blog b JOIN tb_user u ON u.id=b.user_id ORDER BY b.liked DESC NULLS LAST,b.id DESC LIMIT $1", rankCapacity)
 		if err != nil {
 			return err
 		}

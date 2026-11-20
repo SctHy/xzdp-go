@@ -11,10 +11,10 @@ import (
 	"github.com/cloudwego/hertz/pkg/common/test/assert"
 	"github.com/cloudwego/hertz/pkg/common/ut"
 	goredis "github.com/go-redis/redis/v8"
-	"gorm.io/driver/mysql"
+	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 
-	mysqlDal "xzdp/biz/dal/mysql"
+	pgDal "xzdp/biz/dal/postgres"
 	"xzdp/biz/dal/redis"
 )
 
@@ -28,14 +28,13 @@ func setup() {
 	db, mock, _ := sqlmock.New()
 	// defer db.Close()
 
-	gormDB, _ := gorm.Open(mysql.New(mysql.Config{
-		Conn:                      db,
-		SkipInitializeWithVersion: true,
+	gormDB, _ := gorm.Open(postgres.New(postgres.Config{
+		Conn: db,
 	}), &gorm.Config{})
-	mysqlDal.DB = gormDB
+	pgDal.DB = gormDB
 
 	// Mock common queries if needed to avoid panic
-	mock.ExpectQuery(regexp.QuoteMeta("SELECT * FROM `tb_user`")).WillReturnRows(sqlmock.NewRows([]string{"id"}))
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT * FROM \"tb_user\"")).WillReturnRows(sqlmock.NewRows([]string{"id"}))
 }
 
 func TestUserMethod(t *testing.T) {

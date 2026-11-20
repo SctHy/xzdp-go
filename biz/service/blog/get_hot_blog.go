@@ -3,7 +3,7 @@ package blog
 import (
 	"context"
 
-	"xzdp/biz/dal/mysql"
+	"xzdp/biz/dal/postgres"
 	blog "xzdp/biz/model/blog"
 
 	"github.com/cloudwego/hertz/pkg/app"
@@ -26,7 +26,7 @@ func (h *GetHotBlogService) Run(req *blog.BlogReq) (resp *[]*blog.Blog, err erro
 	}
 	ids, err := store.RankPage(h.Context, int(req.Current), constants.MAX_PAGE_SIZE)
 	if err == nil {
-		items, err := mysql.RankedBlogDetails(h.Context, ids)
+		items, err := postgres.RankedBlogDetails(h.Context, ids)
 		if err != nil {
 			return nil, err
 		}
@@ -34,7 +34,7 @@ func (h *GetHotBlogService) Run(req *blog.BlogReq) (resp *[]*blog.Blog, err erro
 			return &items, nil
 		}
 	}
-	blogList, err := mysql.QueryHotBlog(h.Context, int(req.Current))
+	blogList, err := postgres.QueryHotBlog(h.Context, int(req.Current))
 	if err != nil {
 		return nil, err
 	}

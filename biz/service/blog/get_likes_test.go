@@ -9,10 +9,10 @@ import (
 	"github.com/cloudwego/hertz/pkg/app"
 	"github.com/cloudwego/hertz/pkg/common/test/assert"
 	goredis "github.com/go-redis/redis/v8"
-	"gorm.io/driver/mysql"
+	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 
-	mysqlDal "xzdp/biz/dal/mysql"
+	pgDal "xzdp/biz/dal/postgres"
 	"xzdp/biz/dal/redis"
 )
 
@@ -23,11 +23,10 @@ func TestGetLikesService_Run(t *testing.T) {
 
 	// Mock MySQL
 	db, mock, _ := sqlmock.New()
-	gormDB, _ := gorm.Open(mysql.New(mysql.Config{
-		Conn:                      db,
-		SkipInitializeWithVersion: true,
+	gormDB, _ := gorm.Open(postgres.New(postgres.Config{
+		Conn: db,
 	}), &gorm.Config{})
-	mysqlDal.DB = gormDB
+	pgDal.DB = gormDB
 
 	mock.ExpectQuery(".*").WillReturnRows(sqlmock.NewRows([]string{"id"}))
 

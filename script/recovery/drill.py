@@ -26,7 +26,7 @@ def checksum(path):
 
 def backup(folder):
     folder.mkdir(mode=0o700)
-    db = folder / "mysql.sql"
+    db = folder / "postgres.dump"
     rdb = folder / "dump.rdb"
     cli = ("docker", "compose", "exec", "-T", "redis", "redis-cli", "--raw")
     keys = output(*cli, "--scan", "--pattern", "blog:liked:*").splitlines()
@@ -38,13 +38,18 @@ def backup(folder):
         "compose",
         "exec",
         "-T",
-        "mysql",
-        "sh",
-        "-ec",
-        'MYSQL_PWD="$MYSQL_PASSWORD" exec mysql -N -uxzdp xzdp -e "SELECT id,user_id,voucher_id FROM tb_voucher_order ORDER BY id LIMIT 1"',
+        "postgres",
+        "psql",
+        "-XAt",
+        "-U",
+        "xzdp",
+        "-d",
+        "xzdp",
+        "-c",
+        "SELECT id,user_id,voucher_id FROM tb_voucher_order ORDER BY id LIMIT 1",
     )
     if order:
-        witness["order"] = [int(n) for n in order.split()]
+        witness["order"] = [int(n) for n in order.replace("|", " ").split()]
     (folder / "witness.json").write_text(json.dumps(witness))
     with db.open("wb") as stream:
         run(
@@ -52,11 +57,14 @@ def backup(folder):
             "compose",
             "exec",
             "-T",
-            "mysql",
-            "sh",
-            "-ec",
-            'MYSQL_PWD="$MYSQL_PASSWORD" exec mysqldump -uxzdp --single-transaction '
-            "--quick --no-tablespaces --set-gtid-purged=OFF --triggers xzdp",
+            "postgres",
+            "pg_dump",
+            "-Fc",
+            "--no-owner",
+            "--no-privileges",
+            "-U",
+            "xzdp",
+            "xzdp",
             stdout=stream,
         )
     with rdb.open("wb") as stream:
@@ -78,7 +86,7 @@ def backup(folder):
 
 def restore(folder):
     witness = json.loads((folder / "witness.json").read_text())
-    for name in ("mysql.sql", "dump.rdb", "witness.json"):
+    for name in ("postgres.dump", "dump.rdb", "witness.json"):
         if (
             checksum(folder / name)
             != json.loads((folder / "checksums.json").read_text())[name]
@@ -107,34 +115,82 @@ def restore(folder):
             "--memory",
             "512m",
             "-e",
-            "MYSQL_ALLOW_EMPTY_PASSWORD=yes",
+            "POSTGRES_PASSWORD=" + tag,
             "-e",
-            "MYSQL_DATABASE=xzdp",
+            "POSTGRES_DB=xzdp",
             "-e",
-            "MYSQL_USER=xzdp",
-            "-e",
-            "MYSQL_PASSWORD=" + tag,
-            "mysql:8.4",
-            "--innodb-buffer-pool-size=96M",
+            "POSTGRES_USER=xzdp",
+            "imresamu/postgis:17-3.5",
+            "postgres",
+            "-c",
+            "shared_buffers=96MB",
         )
         run("docker", "start", db, stdout=subprocess.DEVNULL)
-        sql = ("docker", "exec", "-i", db, "mysql", "-uroot", "-N", "xzdp")
+        sql = (
+            "docker",
+            "exec",
+            "-i",
+            db,
+            "psql",
+            "-XAt",
+            "-v",
+            "ON_ERROR_STOP=1",
+            "-U",
+            "xzdp",
+            "-d",
+            "xzdp",
+        )
         for _ in range(120):
             if (
                 subprocess.run(
-                    [*sql, "--protocol=tcp", "-e", "SELECT 1"], capture_output=True
+                    [
+                        "docker",
+                        "exec",
+                        db,
+                        "pg_isready",
+                        "-h",
+                        "127.0.0.1",
+                        "-U",
+                        "xzdp",
+                    ],
+                    capture_output=True,
                 ).returncode
                 == 0
             ):
                 break
             time.sleep(1)
-        with (folder / "mysql.sql").open("rb") as stream:
-            run(*sql, stdin=stream)
+        run(
+            "docker",
+            "exec",
+            db,
+            "createdb",
+            "-U",
+            "xzdp",
+            "-T",
+            "template0",
+            "restored",
+        )
+        sql = (*sql[:-1], "restored")
+        with (folder / "postgres.dump").open("rb") as stream:
+            run(
+                "docker",
+                "exec",
+                "-i",
+                db,
+                "pg_restore",
+                "--exit-on-error",
+                "--no-owner",
+                "-U",
+                "xzdp",
+                "-d",
+                "restored",
+                stdin=stream,
+            )
         print(
             "SQL restored (shops, orders, migrations):",
             output(
                 *sql,
-                "-e",
+                "-c",
                 "SELECT (SELECT COUNT(*) FROM tb_shop),(SELECT COUNT(*) FROM tb_voucher_order),(SELECT COUNT(*) FROM schema_migrations)",
             ),
         )
@@ -143,7 +199,7 @@ def restore(folder):
             assert (
                 output(
                     *sql,
-                    "-e",
+                    "-c",
                     f"SELECT COUNT(*) FROM tb_voucher_order WHERE id={int(oid)} AND user_id={int(user)} AND voucher_id={int(voucher)}",
                 )
                 == "1"

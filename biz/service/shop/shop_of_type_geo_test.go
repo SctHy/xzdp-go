@@ -9,10 +9,10 @@ import (
 	"github.com/cloudwego/hertz/pkg/app"
 	goredis "github.com/go-redis/redis/v8"
 	"github.com/stretchr/testify/require"
-	"gorm.io/driver/mysql"
+	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 
-	mysqlDal "xzdp/biz/dal/mysql"
+	pgDal "xzdp/biz/dal/postgres"
 	"xzdp/biz/dal/redis"
 	"xzdp/biz/model/shop"
 	"xzdp/conf"
@@ -26,12 +26,12 @@ func TestNearbyReadsOnlyMatchedIDs(t *testing.T) {
 	db, m, err := sqlmock.New()
 	require.NoError(t, err)
 	defer db.Close()
-	mysqlDal.DB, err = gorm.Open(mysql.New(mysql.Config{Conn: db, SkipInitializeWithVersion: true}), &gorm.Config{})
+	pgDal.DB, err = gorm.Open(postgres.New(postgres.Config{Conn: db}), &gorm.Config{})
 	require.NoError(t, err)
 	require.NoError(t, client.GeoAdd(ctx, "xzdp:"+conf.GetEnv()+":geo:1", &goredis.GeoLocation{Name: "7", Longitude: 120, Latitude: 30}).Err())
 	svc := NewShopOfTypeGeoService(ctx, app.NewContext(1))
 	for n := 0; n < 10; n++ {
-		m.ExpectQuery("SELECT .* FROM `tb_shop` WHERE id IN").WithArgs(7).WillReturnRows(sqlmock.NewRows([]string{"id", "type_id"}).AddRow(7, 1))
+		m.ExpectQuery("SELECT .* FROM \"tb_shop\" WHERE id IN").WithArgs(7).WillReturnRows(sqlmock.NewRows([]string{"id", "type_id"}).AddRow(7, 1))
 		got, err := svc.Run(&shop.ShopOfTypeGeoReq{Current: 1, TypeId: 1, Longitude: 120, Latitude: 30, Distance: 100})
 		require.NoError(t, err)
 		require.Len(t, *got, 1)

@@ -5,7 +5,7 @@ import (
 	"errors"
 	"fmt"
 
-	"xzdp/biz/dal/mysql"
+	"xzdp/biz/dal/postgres"
 	"xzdp/biz/dal/redis"
 	model "xzdp/biz/model/user"
 	"xzdp/biz/pkg/constants"
@@ -29,7 +29,7 @@ func NewUserLoginService(ctx context.Context, requestContext *app.RequestContext
 	return &UserLoginService{
 		RequestContext: requestContext,
 		Context:        ctx,
-		DB:             mysql.DB,
+		DB:             postgres.DB,
 		Redis:          redis.RedisClient,
 	}
 }

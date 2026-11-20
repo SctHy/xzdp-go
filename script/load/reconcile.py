@@ -11,7 +11,7 @@ async def run():
     order = VOUCHER + (1 << 60)
     user = sessions(1)[0]
     sql(f"""INSERT INTO tb_seckill_voucher(voucher_id,stock,begin_time,end_time)
-        VALUES({voucher},1,NOW()-INTERVAL 1 MINUTE,NOW()+INTERVAL 1 HOUR)""")
+        VALUES({voucher},1,NOW()-INTERVAL '1 minute',NOW()+INTERVAL '1 hour')""")
     token, _ = await request(f"/voucher-order/token/{voucher}", user)
     assert token["success"], token
     prefix = "xzdp:" + os.getenv("GO_ENV", "test") + ":trade:"

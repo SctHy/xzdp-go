@@ -48,7 +48,7 @@ func CheckToken(ctx context.Context, c *app.RequestContext) {
 		}
 		cancel()
 		if err != nil {
-			// Shop reads are viewer-independent and may fall back to MySQL.
+			// Shop reads are viewer-independent and may fall back to PostgreSQL.
 			if string(c.Method()) == "GET" && (path == "/shop/:id" || path == "/shop-type/list") {
 				c.Next(ctx)
 				return

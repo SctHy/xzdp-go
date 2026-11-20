@@ -25,10 +25,10 @@ type Config struct {
 	Env           string
 	ShopCache     ShopCache `yaml:"shop_cache"`
 
-	Hertz Hertz `yaml:"hertz"`
-	MySQL MySQL `yaml:"mysql"`
-	Redis Redis `yaml:"redis"`
-	Cors  Cors  `yaml:"cors"`
+	Hertz    Hertz    `yaml:"hertz"`
+	Postgres Postgres `yaml:"postgres"`
+	Redis    Redis    `yaml:"redis"`
+	Cors     Cors     `yaml:"cors"`
 }
 
 type ShopCache struct {
@@ -44,7 +44,7 @@ func DefaultShopCache() ShopCache {
 	return ShopCache{MemoryMiB: 16, LocalSeconds: 30, RedisSeconds: 600, RefreshSeconds: 60, HotIDs: []int64{1}}
 }
 
-type MySQL struct {
+type Postgres struct {
 	DSN string `yaml:"dsn"`
 }
 
@@ -92,7 +92,7 @@ func Current() (*Config, error) {
 }
 
 func Load() (*Config, error) {
-	c := Config{FeedThreshold: 10000, Env: GetEnv(), KafkaBroker: "127.0.0.1:9092", ShopCache: DefaultShopCache(), Hertz: Hertz{Address: ":8081", LogLevel: "info", EnableAccessLog: true}, MySQL: MySQL{DSN: "xzdp:xzdp-local@tcp(127.0.0.1:3306)/xzdp?parseTime=true&timeout=3s"}, Redis: Redis{Address: "127.0.0.1:6379"}, Cors: Cors{Mode: "allow-all"}}
+	c := Config{FeedThreshold: 10000, Env: GetEnv(), KafkaBroker: "127.0.0.1:9092", ShopCache: DefaultShopCache(), Hertz: Hertz{Address: ":8081", LogLevel: "info", EnableAccessLog: true}, Postgres: Postgres{DSN: "postgres://xzdp:xzdp-local@127.0.0.1:5432/xzdp?sslmode=disable"}, Redis: Redis{Address: "127.0.0.1:6379"}, Cors: Cors{Mode: "allow-all"}}
 	path, explicit := os.LookupEnv("XZDP_CONFIG")
 	if !explicit {
 		path = filepath.Join("conf", c.Env, "conf.yaml")
@@ -105,7 +105,7 @@ func Load() (*Config, error) {
 	} else if explicit || !os.IsNotExist(err) {
 		return nil, err
 	}
-	for key, dest := range map[string]*string{"XZDP_KAFKA_BROKER": &c.KafkaBroker, "XZDP_HTTP_ADDRESS": &c.Hertz.Address, "XZDP_LOG_LEVEL": &c.Hertz.LogLevel, "XZDP_MYSQL_DSN": &c.MySQL.DSN, "XZDP_REDIS_ADDRESS": &c.Redis.Address, "XZDP_REDIS_PASSWORD": &c.Redis.Password} {
+	for key, dest := range map[string]*string{"XZDP_KAFKA_BROKER": &c.KafkaBroker, "XZDP_HTTP_ADDRESS": &c.Hertz.Address, "XZDP_LOG_LEVEL": &c.Hertz.LogLevel, "XZDP_POSTGRES_DSN": &c.Postgres.DSN, "XZDP_REDIS_ADDRESS": &c.Redis.Address, "XZDP_REDIS_PASSWORD": &c.Redis.Password} {
 		if v, ok := os.LookupEnv(key); ok {
 			*dest = v
 		}
@@ -128,8 +128,8 @@ func Load() (*Config, error) {
 			return nil, err
 		}
 	}
-	if c.Hertz.Address == "" || c.Redis.Address == "" || c.MySQL.DSN == "" {
-		return nil, fmt.Errorf("empty HTTP, MySQL or Redis configuration")
+	if c.Hertz.Address == "" || c.Redis.Address == "" || c.Postgres.DSN == "" {
+		return nil, fmt.Errorf("empty HTTP, Postgres or Redis configuration")
 	}
 	if c.ShopCache.MemoryMiB < 1 || c.ShopCache.MemoryMiB > 64 || c.ShopCache.LocalSeconds < 1 || c.ShopCache.RedisSeconds < 1 || c.ShopCache.RefreshSeconds < 1 {
 		return nil, fmt.Errorf("invalid shop_cache capacity or TTL")

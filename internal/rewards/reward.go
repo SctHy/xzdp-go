@@ -63,18 +63,18 @@ func (s service) progress(ctx context.Context, u int64, now time.Time, claim boo
 	defer tx.Rollback()
 	// Ordinary voucher 1 is the seed reward; a monthly rule can override it.
 	e = tx.QueryRowContext(ctx, `SELECT COALESCE(r.days_required,7),v.id FROM (SELECT 1) AS seed
- LEFT JOIN sign_reward_rule r ON r.month_start=? JOIN tb_voucher v ON v.id=COALESCE(r.voucher_id,1) AND v.type=0 AND v.status=1 FOR SHARE`, month).Scan(&p.Required, &p.Voucher)
+ LEFT JOIN sign_reward_rule r ON r.month_start=$1 JOIN tb_voucher v ON v.id=COALESCE(r.voucher_id,1) AND v.type=0 AND v.status=1 FOR SHARE OF v`, month).Scan(&p.Required, &p.Voucher)
 	if e != nil && !errors.Is(e, sql.ErrNoRows) {
 		return nil, e
 	}
 	if claim && p.Voucher != 0 && p.Days >= p.Required {
-		_, e = tx.ExecContext(ctx, "INSERT IGNORE INTO sign_reward_grant VALUES(?,?,?,UTC_TIMESTAMP())", u, month, p.Voucher)
+		_, e = tx.ExecContext(ctx, "INSERT INTO sign_reward_grant VALUES($1,$2,$3,statement_timestamp()) ON CONFLICT DO NOTHING", u, month, p.Voucher)
 		if e != nil {
 			return nil, e
 		}
 	}
 	var granted int64
-	e = tx.QueryRowContext(ctx, "SELECT voucher_id FROM sign_reward_grant WHERE user_id=? AND month_start=?", u, month).Scan(&granted)
+	e = tx.QueryRowContext(ctx, "SELECT voucher_id FROM sign_reward_grant WHERE user_id=$1 AND month_start=$2", u, month).Scan(&granted)
 	if e == nil {
 		p.Claimed = true
 		p.Voucher = granted

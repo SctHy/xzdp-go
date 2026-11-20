@@ -162,7 +162,7 @@ func (s *ShopCache) read(ctx context.Context, suffix string, out any, load func(
 var finishFill = redis.NewScript(`if redis.call('GET',KEYS[1])==ARGV[1] then redis.call('PSETEX',KEYS[2],ARGV[2],ARGV[3]);redis.call('DEL',KEYS[1]);return 1 end return 0`)
 var unlockFill = redis.NewScript(`if redis.call('GET',KEYS[1])==ARGV[1] then return redis.call('DEL',KEYS[1]) end return 0`)
 
-// Reserve time for MySQL when Redis accepts a connection but does not reply.
+// Reserve time for PostgreSQL when Redis accepts a connection but does not reply.
 func (s *ShopCache) lookup(ctx context.Context, key string) ([]byte, error) {
 	probe, cancel := context.WithTimeout(ctx, 250*time.Millisecond)
 	defer cancel()

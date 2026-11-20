@@ -5,7 +5,7 @@ import (
 
 	"github.com/cloudwego/hertz/pkg/app"
 
-	"xzdp/biz/dal/mysql"
+	"xzdp/biz/dal/postgres"
 	"xzdp/biz/dal/redis"
 	"xzdp/biz/model/blog"
 	"xzdp/biz/utils"
@@ -22,5 +22,5 @@ func NewGetFollowBlogService(Context context.Context, RequestContext *app.Reques
 }
 
 func (h *GetFollowBlogService) Run(req *blog.FollowBlogReq) (resp *blog.FollowBlogRresp, err error) {
-	return social.Timeline(h.Context, mysql.DB, redis.RedisClient, utils.GetUser(h.Context).GetID(), req)
+	return social.Timeline(h.Context, postgres.DB, redis.RedisClient, utils.GetUser(h.Context).GetID(), req)
 }

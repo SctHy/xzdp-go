@@ -36,8 +36,8 @@ def run():
         }
         pushed = call("/blog", normal, body)["id"]
         pulled = call("/blog", popular, body)["id"]
-        poll(lambda: sql(f"SELECT delivered FROM feed_publication WHERE blog_id={pushed}") == "1")
-        assert sql(f"SELECT pull FROM feed_publication WHERE blog_id={pulled}") == "1"
+        poll(lambda: sql(f"SELECT delivered::int FROM feed_publication WHERE blog_id={pushed}") == "1")
+        assert sql(f"SELECT pull::int FROM feed_publication WHERE blog_id={pulled}") == "1"
         inbox = f"feed:{reader}"
         assert compose("redis", ["redis-cli", "--raw", "ZSCORE", inbox, str(pushed)])
         assert not compose("redis", ["redis-cli", "--raw", "ZSCORE", inbox, str(pulled)])

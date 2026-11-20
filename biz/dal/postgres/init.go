@@ -1,10 +1,10 @@
-package mysql
+package postgres
 
 import (
 	"context"
 	"database/sql"
-	_ "github.com/go-sql-driver/mysql"
-	"gorm.io/driver/mysql"
+	_ "github.com/jackc/pgx/v5/stdlib"
+	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 	"gorm.io/gorm/schema"
 	"time"
@@ -14,7 +14,7 @@ import (
 var DB *gorm.DB
 
 func Open(ctx context.Context) (*sql.DB, error) {
-	pool, err := sql.Open("mysql", conf.GetConf().MySQL.DSN)
+	pool, err := sql.Open("pgx", conf.GetConf().Postgres.DSN)
 	if err != nil {
 		return nil, err
 	}
@@ -26,7 +26,7 @@ func Open(ctx context.Context) (*sql.DB, error) {
 		return nil, err
 	}
 
-	DB, err = gorm.Open(mysql.New(mysql.Config{Conn: pool, SkipInitializeWithVersion: true}),
+	DB, err = gorm.Open(postgres.New(postgres.Config{Conn: pool}),
 		&gorm.Config{
 			DisableAutomaticPing:   true,
 			PrepareStmt:            true,

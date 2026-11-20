@@ -10,10 +10,10 @@ import (
 	"github.com/cloudwego/hertz/pkg/app"
 	"github.com/cloudwego/hertz/pkg/common/test/assert"
 	goredis "github.com/go-redis/redis/v8"
-	"gorm.io/driver/mysql"
+	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 
-	mysqlDal "xzdp/biz/dal/mysql"
+	pgDal "xzdp/biz/dal/postgres"
 	"xzdp/biz/dal/redis"
 	"xzdp/biz/model/user"
 	"xzdp/biz/utils"
@@ -34,14 +34,13 @@ func TestCommonFollowService_Run(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer db.Close()
-	gormDB, err := gorm.Open(mysql.New(mysql.Config{
-		Conn:                      db,
-		SkipInitializeWithVersion: true,
+	gormDB, err := gorm.Open(postgres.New(postgres.Config{
+		Conn: db,
 	}), &gorm.Config{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	mysqlDal.DB = gormDB
+	pgDal.DB = gormDB
 
 	ctx := context.Background()
 	c := app.NewContext(1)
@@ -60,7 +59,7 @@ func TestCommonFollowService_Run(t *testing.T) {
 
 	// We just ensure no panic here, as setting up exact Redis/MySQL data for complex logic is verbose
 	// Mock MySQL return empty for safety
-	mock.ExpectQuery(regexp.QuoteMeta("SELECT * FROM `tb_user` WHERE id in (?)")).
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT * FROM \"tb_user\" WHERE id in ($1)")).
 		WillReturnRows(sqlmock.NewRows([]string{"id"}))
 
 	resp, err := s.Run(req)

@@ -9,7 +9,7 @@ import (
 	"github.com/cloudwego/hertz/pkg/app"
 	"github.com/cloudwego/hertz/pkg/common/test/assert"
 	"github.com/cloudwego/hertz/pkg/route/param"
-	"gorm.io/driver/mysql"
+	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 
 	model "xzdp/biz/model/user"
@@ -23,9 +23,8 @@ func TestUserInfoService_Run(t *testing.T) {
 	}
 	defer db.Close()
 
-	gormDB, err := gorm.Open(mysql.New(mysql.Config{
-		Conn:                      db,
-		SkipInitializeWithVersion: true,
+	gormDB, err := gorm.Open(postgres.New(postgres.Config{
+		Conn: db,
 	}), &gorm.Config{})
 	if err != nil {
 		t.Fatalf("an error '%s' was not expected when opening gorm database connection", err)
@@ -44,7 +43,7 @@ func TestUserInfoService_Run(t *testing.T) {
 		rows := sqlmock.NewRows([]string{"user_id", "introduce"}).
 			AddRow(1, "hello world")
 
-		mock.ExpectQuery(regexp.QuoteMeta("SELECT * FROM `tb_user_info` WHERE user_id = ? ORDER BY `tb_user_info`.`user_id` LIMIT ?")).
+		mock.ExpectQuery(regexp.QuoteMeta("SELECT * FROM \"tb_user_info\" WHERE user_id = $1 ORDER BY \"tb_user_info\".\"user_id\" LIMIT $2")).
 			WithArgs(1, 1).
 			WillReturnRows(rows)
 
@@ -60,20 +59,20 @@ func TestUserInfoService_Run(t *testing.T) {
 	// Case 2: Success (User Info creates)
 	t.Run("Success_UserCreate", func(t *testing.T) {
 		// 1. Get fails
-		mock.ExpectQuery(regexp.QuoteMeta("SELECT * FROM `tb_user_info` WHERE user_id = ? ORDER BY `tb_user_info`.`user_id` LIMIT ?")).
+		mock.ExpectQuery(regexp.QuoteMeta("SELECT * FROM \"tb_user_info\" WHERE user_id = $1 ORDER BY \"tb_user_info\".\"user_id\" LIMIT $2")).
 			WithArgs(1, 1).
 			WillReturnError(gorm.ErrRecordNotFound)
 
 		// 2. Create
 		mock.ExpectBegin()
-		mock.ExpectExec(regexp.QuoteMeta("INSERT INTO `tb_user_info`")).
-			WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg()). // 11 fields
+		mock.ExpectExec(regexp.QuoteMeta("INSERT INTO \"tb_user_info\"")).
+			WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg()).
 			WillReturnResult(sqlmock.NewResult(1, 1))
 		mock.ExpectCommit()
 
 		// 3. Get success
 		rows := sqlmock.NewRows([]string{"user_id"}).AddRow(1)
-		mock.ExpectQuery(regexp.QuoteMeta("SELECT * FROM `tb_user_info` WHERE user_id = ? ORDER BY `tb_user_info`.`user_id` LIMIT ?")).
+		mock.ExpectQuery(regexp.QuoteMeta("SELECT * FROM \"tb_user_info\" WHERE user_id = $1 ORDER BY \"tb_user_info\".\"user_id\" LIMIT $2")).
 			WithArgs(1, 1).
 			WillReturnRows(rows)
 

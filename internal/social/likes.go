@@ -57,7 +57,7 @@ func (s Store) Toggle(ctx context.Context, id, u int64) (bool, error) {
 		return n == 1, err
 	}
 	var count, version, author int64
-	if err = s.DB.QueryRowContext(ctx, "SELECT COALESCE(liked,0),like_version,user_id FROM tb_blog WHERE id=?", id).Scan(&count, &version, &author); err != nil {
+	if err = s.DB.QueryRowContext(ctx, "SELECT COALESCE(liked,0),like_version,user_id FROM tb_blog WHERE id=$1", id).Scan(&count, &version, &author); err != nil {
 		return false, err
 	}
 	n, err = toggle.Run(ctx, s.Redis, keys, append(args, count, version, author)...).Int()
@@ -78,7 +78,7 @@ func (s Store) flush(ctx context.Context, key string) error {
 	if _, err = fmt.Sscanf(key, s.Prefix+"like:%d", &id); err != nil {
 		return err
 	}
-	_, err = s.DB.ExecContext(ctx, "UPDATE tb_blog SET liked=?,like_version=? WHERE id=? AND like_version<?", fields[0], fields[1], id, fields[1])
+	_, err = s.DB.ExecContext(ctx, "UPDATE tb_blog SET liked=$1,like_version=$2 WHERE id=$3 AND like_version<$4", fields[0], fields[1], id, fields[1])
 	if err != nil {
 		return err
 	}

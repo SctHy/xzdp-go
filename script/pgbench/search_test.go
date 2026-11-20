@@ -53,12 +53,17 @@ func launch(t *testing.T, db *sql.DB, engine string) string {
 	h := server.New(server.WithHostPorts(addr))
 	switch engine {
 	case "mysql":
-		discovery.Register(h, db)
+		discovery.RegisterSearch(h, func(ctx context.Context, q discovery.Query) (*sql.Rows, error) {
+			return db.QueryContext(ctx, `SELECT id,name,type_id,ST_Distance_Sphere(POINT(x,y),POINT(?,?)) AS meters FROM tb_shop
+ WHERE (?=0 OR type_id=?) AND LOCATE(?,name)>0 HAVING meters<=? ORDER BY meters,id LIMIT 10 OFFSET ?`, q.X, q.Y, q.Type, q.Type, q.Q, q.Radius, (max(1, q.Page)-1)*10)
+		})
 	case "mysql-bounded":
 		discovery.RegisterSearch(h, func(ctx context.Context, q discovery.Query) (*sql.Rows, error) {
 			west, south, east, north := bounds(q)
 			return db.QueryContext(ctx, myBound, q.X, q.Y, q.Type, q.Type, west, south, east, north, q.Q, q.Radius, (max(1, q.Page)-1)*10)
 		})
+	case "production":
+		discovery.Register(h, db)
 	case "pg":
 		discovery.RegisterSearch(h, func(ctx context.Context, q discovery.Query) (*sql.Rows, error) {
 			return db.QueryContext(ctx, pgNear, q.X, q.Y, q.Type, q.Q, q.Radius, (max(1, q.Page)-1)*10, ratio)

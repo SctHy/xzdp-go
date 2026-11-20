@@ -3,7 +3,7 @@ package shop
 import (
 	"context"
 
-	"xzdp/biz/dal/mysql"
+	"xzdp/biz/dal/postgres"
 	"xzdp/biz/dal/redis"
 	shop "xzdp/biz/model/shop"
 
@@ -24,7 +24,7 @@ func (h *ShopOfTypeGeoService) Run(req *shop.ShopOfTypeGeoReq) (resp *[]*shop.Sh
 	if err != nil {
 		return nil, err
 	}
-	resp, err = mysql.QueryAllShop(h.Context, shops)
+	resp, err = postgres.QueryAllShop(h.Context, shops)
 	if err != nil {
 		return nil, err
 	}

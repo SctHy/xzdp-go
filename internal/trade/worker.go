@@ -14,40 +14,8 @@ import (
 )
 
 func (s Sale) persist(ctx context.Context, o Order) error {
-	tx, err := s.DB.BeginTx(ctx, nil)
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
-	r, err := tx.ExecContext(ctx, "INSERT IGNORE INTO trade_receipt(order_id) VALUES (?)", o.ID)
-	if err != nil {
-		return err
-	}
-	n, err := r.RowsAffected()
-	if err != nil {
-		return err
-	}
-	if n == 0 {
-		return tx.Commit()
-	}
-	if _, err = tx.ExecContext(ctx, "INSERT INTO tb_voucher_order(id,user_id,voucher_id,status) VALUES(?,?,?,1)", o.ID, o.User, o.Voucher); err != nil {
-		return err
-	}
-	r, err = tx.ExecContext(ctx, "UPDATE tb_seckill_voucher SET stock=stock-1 WHERE voucher_id=? AND stock>0", o.Voucher)
-	if err != nil {
-		return err
-	}
-	n, err = r.RowsAffected()
-	if err != nil {
-		return err
-	}
-	if n != 1 {
-		return errors.New("database stock exhausted")
-	}
-	if _, err = tx.ExecContext(ctx, "INSERT INTO trade_notice(event_key,user_id,content) VALUES(?,?,?)", "order:"+o.ID, o.User, "优惠券订单 "+o.ID+" 已生成"); err != nil {
-		return err
-	}
-	return tx.Commit()
+	_, err := s.DB.ExecContext(ctx, "SELECT persist_voucher_order($1,$2,$3)", o.ID, o.User, o.Voucher)
+	return err
 }
 
 func (s Sale) ack(ctx context.Context, id string) error {
@@ -82,7 +50,7 @@ func (s Sale) relay(ctx context.Context, w *kafka.Writer, topic string) error {
 	if err = w.WriteMessages(ctx, msgs...); err != nil {
 		return err
 	}
-	// Pending stays durable until MySQL commits. Delayed redelivery also recovers a lost Kafka record.
+	// Pending stays durable until PostgreSQL commits. Delayed redelivery also recovers a lost Kafka record.
 	p := s.Redis.Pipeline()
 	for _, m := range msgs {
 		p.ZAddXX(ctx, s.Prefix+"relay", &redis.Z{Score: float64(time.Now().Add(time.Minute).Unix()), Member: string(m.Key)})
@@ -124,7 +92,7 @@ func (s Sale) consume(ctx context.Context, r *kafka.Reader, w *kafka.Writer, top
 			for ctx.Err() == nil {
 				err = w.WriteMessages(ctx, kafka.Message{Topic: topic + ".dlq", Key: msg.Key, Value: msg.Value, Headers: []kafka.Header{{Key: "reason", Value: []byte(reason)}}})
 				if err == nil && decode == nil {
-					_, err = s.DB.ExecContext(ctx, "INSERT INTO trade_dead_letter(order_id,voucher_id,user_id,reason) VALUES(?,?,?,LEFT(?,255)) ON DUPLICATE KEY UPDATE reason=VALUES(reason)", o.ID, o.Voucher, o.User, reason)
+					_, err = s.DB.ExecContext(ctx, "INSERT INTO trade_dead_letter(order_id,voucher_id,user_id,reason) VALUES($1,$2,$3,LEFT($4,255)) ON CONFLICT(order_id) DO UPDATE SET reason=EXCLUDED.reason", o.ID, o.Voucher, o.User, reason)
 				}
 				if err == nil {
 					break

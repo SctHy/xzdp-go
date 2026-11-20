@@ -65,21 +65,21 @@ func (i Index) batch(ctx context.Context) (int, error) {
 	for _, id := range ids {
 		var category string
 		var x, y float64
-		err = tx.QueryRowContext(ctx, "SELECT type_id,x,y FROM tb_shop WHERE id=?", id).Scan(&category, &x, &y)
+		err = tx.QueryRowContext(ctx, "SELECT type_id,x,y FROM tb_shop WHERE id=$1", id).Scan(&category, &x, &y)
 		if err != nil && err != sql.ErrNoRows {
 			return 0, err
 		}
 		if err = apply.Run(ctx, i.Redis, []string{i.Prefix + "categories"}, id, category, x, y, i.Prefix).Err(); err != nil {
 			return 0, err
 		}
-		if _, err = tx.ExecContext(ctx, "DELETE FROM shop_geo_dirty WHERE shop_id=?", id); err != nil {
+		if _, err = tx.ExecContext(ctx, "DELETE FROM shop_geo_dirty WHERE shop_id=$1", id); err != nil {
 			return 0, err
 		}
 	}
 	return len(ids), tx.Commit()
 }
 func (i Index) Warm(ctx context.Context) error {
-	if _, err := i.DB.ExecContext(ctx, "INSERT IGNORE INTO shop_geo_dirty SELECT id FROM tb_shop"); err != nil {
+	if _, err := i.DB.ExecContext(ctx, "INSERT INTO shop_geo_dirty SELECT id FROM tb_shop ON CONFLICT DO NOTHING"); err != nil {
 		return err
 	}
 	if err := i.Sync(ctx); err != nil {

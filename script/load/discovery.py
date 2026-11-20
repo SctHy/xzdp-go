@@ -88,12 +88,12 @@ def search_booking(users):
         assert len(ids) == 1 and http(f"/shops/{v}/slots")["data"][0]["remaining"] == 0
         different_key = ids.pop()
         sql(
-            f"UPDATE booking_slot SET starts_at=UTC_TIMESTAMP()-INTERVAL 5 MINUTE WHERE id={sid}"
+            f"UPDATE booking_slot SET starts_at=statement_timestamp()-INTERVAL '5 minute' WHERE id={sid}"
         )
         assert not http(f"/bookings/{different_key}/cancel", users[i], {})["success"]
     finally:
         sql(
-            f"DELETE b FROM booking b JOIN booking_slot s ON s.id=b.slot_id WHERE s.shop_id={v};DELETE FROM booking_slot WHERE shop_id={v};DELETE FROM shop_staff WHERE shop_id={v};DELETE FROM tb_shop WHERE id BETWEEN {v} AND {v+11}"
+            f"DELETE FROM booking b USING booking_slot s WHERE s.id=b.slot_id AND s.shop_id={v};DELETE FROM booking_slot WHERE shop_id={v};DELETE FROM shop_staff WHERE shop_id={v};DELETE FROM tb_shop WHERE id BETWEEN {v} AND {v+11}"
         )
     print(
         "PASS search filters before paging and concurrent booking, replay, ownership and cancel"
@@ -157,10 +157,10 @@ def email(users):
     tokens = [r["data"] for r in results if r["success"]]
     assert len(tokens) == 1, results
     uid = http("/user/me", tokens[0])["data"]["id"]
-    assert sql(f"SELECT phone IS NULL FROM tb_user WHERE id={uid}") == "1"
+    assert sql(f"SELECT (phone IS NULL)::int FROM tb_user WHERE id={uid}") == "1"
     bound_uid = int(
         sql(
-            "INSERT INTO tb_user(nick_name) VALUES('binding fixture');SELECT LAST_INSERT_ID()"
+            "INSERT INTO tb_user(nick_name) VALUES('binding fixture') RETURNING id"
         )
     )
     compose(

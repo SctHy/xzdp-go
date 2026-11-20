@@ -20,11 +20,11 @@ func Publish(ctx context.Context, db *gorm.DB, b *blog.Blog, threshold int64) er
 		if err := tx.Omit("CreateTime", "UpdateTime").Create(b).Error; err != nil {
 			return err
 		}
-		return tx.Exec("INSERT INTO feed_publication(blog_id,author_id,published,pull) SELECT ?,?,UNIX_TIMESTAMP(),COUNT(*)>=? FROM tb_follow WHERE follow_user_id=?", b.ID, b.UserId, threshold, b.UserId).Error
+		return tx.Exec("INSERT INTO feed_publication(blog_id,author_id,published,pull) SELECT ?,?,floor(extract(epoch FROM now()))::bigint,COUNT(*)>=? FROM tb_follow WHERE follow_user_id=?", b.ID, b.UserId, threshold, b.UserId).Error
 	})
 }
 func (s Store) deliver(ctx context.Context) error {
-	rows, err := s.DB.QueryContext(ctx, "SELECT blog_id,author_id,published FROM feed_publication WHERE pull=0 AND delivered=0 ORDER BY blog_id LIMIT 50")
+	rows, err := s.DB.QueryContext(ctx, "SELECT blog_id,author_id,published FROM feed_publication WHERE NOT pull AND NOT delivered ORDER BY blog_id LIMIT 50")
 	if err != nil {
 		return err
 	}
@@ -34,7 +34,7 @@ func (s Store) deliver(ctx context.Context) error {
 		if err = rows.Scan(&id, &author, &stamp); err != nil {
 			return err
 		}
-		fans, err := s.DB.QueryContext(ctx, "SELECT DISTINCT user_id FROM tb_follow WHERE follow_user_id=?", author)
+		fans, err := s.DB.QueryContext(ctx, "SELECT DISTINCT user_id FROM tb_follow WHERE follow_user_id=$1", author)
 		if err != nil {
 			return err
 		}
@@ -55,7 +55,7 @@ func (s Store) deliver(ctx context.Context) error {
 		if _, err = p.Exec(ctx); err != nil {
 			return err
 		}
-		if _, err = s.DB.ExecContext(ctx, "UPDATE feed_publication SET delivered=1 WHERE blog_id=?", id); err != nil {
+		if _, err = s.DB.ExecContext(ctx, "UPDATE feed_publication SET delivered=true WHERE blog_id=$1", id); err != nil {
 			return err
 		}
 	}
@@ -109,9 +109,9 @@ func readPage(ctx context.Context, db *gorm.DB, r *redis.Client, user, maxTime, 
 		entries[z.Member.(string)] = int64(z.Score)
 	}
 	var pulled []entry
-	err = db.WithContext(ctx).Raw(`SELECT CAST(p.blog_id AS CHAR) AS id,p.published AS stamp FROM feed_publication p
+	err = db.WithContext(ctx).Raw(`SELECT CAST(p.blog_id AS text) AS id,p.published AS stamp FROM feed_publication p
  WHERE (p.pull OR NOT p.delivered) AND p.published<=? AND EXISTS(SELECT 1 FROM tb_follow f WHERE f.user_id=? AND f.follow_user_id=p.author_id)
- ORDER BY p.published DESC,CAST(p.blog_id AS CHAR) DESC LIMIT ?`, maxTime, user, limit).Scan(&pulled).Error
+ ORDER BY p.published DESC,CAST(p.blog_id AS text) DESC LIMIT ?`, maxTime, user, limit).Scan(&pulled).Error
 	if err != nil {
 		return nil, err
 	}

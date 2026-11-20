@@ -14,7 +14,7 @@ async def run():
     users = sessions(1000)
 
     def updates():
-        return int(sql("SHOW GLOBAL STATUS LIKE 'Com_update'").split()[1])
+        return int(sql("SELECT n_tup_upd FROM pg_stat_user_tables WHERE relname='tb_blog'"))
 
     before = updates()
     start = time.monotonic()

@@ -10,7 +10,7 @@ import (
 	"github.com/cloudwego/hertz/pkg/app"
 	"github.com/cloudwego/hertz/pkg/common/test/assert"
 	"github.com/go-redis/redis/v8"
-	"gorm.io/driver/mysql"
+	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 
 	model "xzdp/biz/model/user"
@@ -36,9 +36,8 @@ func TestUserLoginService_Run(t *testing.T) {
 	}
 	defer db.Close()
 
-	gormDB, err := gorm.Open(mysql.New(mysql.Config{
-		Conn:                      db,
-		SkipInitializeWithVersion: true,
+	gormDB, err := gorm.Open(postgres.New(postgres.Config{
+		Conn: db,
 	}), &gorm.Config{})
 	if err != nil {
 		t.Fatalf("an error '%s' was not expected when opening gorm database connection", err)
@@ -59,7 +58,7 @@ func TestUserLoginService_Run(t *testing.T) {
 		// Mock DB
 		rows := sqlmock.NewRows([]string{"id", "phone", "nick_name", "icon"}).
 			AddRow(1, phone, "test_user", "icon.png")
-		mock.ExpectQuery(regexp.QuoteMeta("SELECT * FROM `tb_user` WHERE phone = ? ORDER BY `tb_user`.`id` LIMIT ?")).
+		mock.ExpectQuery(regexp.QuoteMeta("SELECT * FROM \"tb_user\" WHERE phone = $1 ORDER BY \"tb_user\".\"id\" LIMIT $2")).
 			WithArgs(phone, 1).
 			WillReturnRows(rows)
 
@@ -78,15 +77,15 @@ func TestUserLoginService_Run(t *testing.T) {
 		mr.Set(constants.LOGIN_CODE_KEY+phone, code)
 
 		// Mock DB - First query returns not found
-		mock.ExpectQuery(regexp.QuoteMeta("SELECT * FROM `tb_user` WHERE phone = ? ORDER BY `tb_user`.`id` LIMIT ?")).
+		mock.ExpectQuery(regexp.QuoteMeta("SELECT * FROM \"tb_user\" WHERE phone = $1 ORDER BY \"tb_user\".\"id\" LIMIT $2")).
 			WithArgs(phone, 1).
 			WillReturnError(gorm.ErrRecordNotFound)
 
 		// Mock DB - Create user
 		mock.ExpectBegin()
-		mock.ExpectExec(regexp.QuoteMeta("INSERT INTO `tb_user`")).
+		mock.ExpectQuery(regexp.QuoteMeta("INSERT INTO \"tb_user\"")).
 			WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg()). // Adjust args based on model
-			WillReturnResult(sqlmock.NewResult(2, 1))
+			WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(2))
 		mock.ExpectCommit()
 
 		req := &model.UserLoginFrom{

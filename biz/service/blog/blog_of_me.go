@@ -2,7 +2,7 @@ package blog
 
 import (
 	"context"
-	"xzdp/biz/dal/mysql"
+	"xzdp/biz/dal/postgres"
 	"xzdp/biz/model/user"
 	"xzdp/biz/utils"
 
@@ -31,7 +31,7 @@ func (h *BlogOfMeService) Run(req *blog.BlogReq) (resp *[]*blog.Blog, err error)
 		NickName: u.NickName,
 		Icon:     u.Icon,
 	}
-	blogList, err := mysql.QueryBlogByUserID(h.Context, int(req.Current), d)
+	blogList, err := postgres.QueryBlogByUserID(h.Context, int(req.Current), d)
 	if err != nil {
 		return nil, err
 	}

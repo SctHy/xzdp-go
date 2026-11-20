@@ -5,9 +5,9 @@ import (
 	"database/sql"
 	"testing"
 
-	mysql2 "xzdp/biz/dal/mysql"
+	pgDal "xzdp/biz/dal/postgres"
 
-	"gorm.io/driver/mysql"
+	"gorm.io/driver/postgres"
 
 	redis2 "xzdp/biz/dal/redis"
 	user "xzdp/biz/model/user"
@@ -59,9 +59,8 @@ func TestMain(m *testing.M) {
 	}
 	defer db.Close()
 
-	mysql2.DB, err = gorm.Open(mysql.New(mysql.Config{
-		Conn:                      db,
-		SkipInitializeWithVersion: true, // 跳过版本检查以支持 mock
+	pgDal.DB, err = gorm.Open(postgres.New(postgres.Config{
+		Conn: db, // 跳过版本检查以支持 mock
 	}), &gorm.Config{})
 	if err != nil {
 		panic(err)

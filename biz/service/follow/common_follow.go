@@ -4,7 +4,7 @@ import (
 	"context"
 	"errors"
 	"strconv"
-	"xzdp/biz/dal/mysql"
+	"xzdp/biz/dal/postgres"
 	"xzdp/biz/dal/redis"
 	model "xzdp/biz/model/user"
 	"xzdp/biz/pkg/constants"
@@ -38,7 +38,7 @@ func (h *CommonFollowService) Run(targetUserID string) (resp *follow.CommonFollo
 		return nil, err
 	}
 	var users []*model.User
-	if !errors.Is(mysql.DB.Where("id in ?", arr).Find(&users).Error, nil) {
+	if !errors.Is(postgres.DB.Where("id in ?", arr).Find(&users).Error, nil) {
 		return nil, errors.New("查询失败")
 	}
 	var userDto []*model.UserDTO

@@ -11,10 +11,10 @@ import (
 	"github.com/alicebob/miniredis/v2"
 	"github.com/cloudwego/hertz/pkg/app"
 	goredis "github.com/go-redis/redis/v8"
-	"gorm.io/driver/mysql"
+	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 
-	mysqlDal "xzdp/biz/dal/mysql"
+	pgDal "xzdp/biz/dal/postgres"
 	"xzdp/biz/dal/redis"
 	blog "xzdp/biz/model/blog"
 )
@@ -26,11 +26,10 @@ func TestGetHotBlogService_Run(t *testing.T) {
 
 	// Mock MySQL
 	db, mock, _ := sqlmock.New()
-	gormDB, _ := gorm.Open(mysql.New(mysql.Config{
-		Conn:                      db,
-		SkipInitializeWithVersion: true,
+	gormDB, _ := gorm.Open(postgres.New(postgres.Config{
+		Conn: db,
 	}), &gorm.Config{})
-	mysqlDal.DB = gormDB
+	pgDal.DB = gormDB
 
 	mock.ExpectQuery("SELECT b.*JOIN tb_user").WillReturnRows(sqlmock.NewRows([]string{"id", "user_id", "author_name", "author_icon"}).AddRow(1, 2, "author", "photo"))
 	ctx := context.Background()
@@ -59,7 +58,7 @@ func TestHotPagesHydrateSnapshotInRankOrder(t *testing.T) {
 	db, m, err := sqlmock.New()
 	require.NoError(t, err)
 	defer db.Close()
-	mysqlDal.DB, err = gorm.Open(mysql.New(mysql.Config{Conn: db, SkipInitializeWithVersion: true}), &gorm.Config{})
+	pgDal.DB, err = gorm.Open(postgres.New(postgres.Config{Conn: db}), &gorm.Config{})
 	require.NoError(t, err)
 	require.NoError(t, client.Set(ctx, "xzdp:"+conf.GetEnv()+":social:hot-rank", "[9,3]", time.Minute).Err())
 	svc := NewGetHotBlogService(ctx, app.NewContext(1))

@@ -13,10 +13,10 @@ import (
 	goredis "github.com/go-redis/redis/v8"
 	"github.com/go-redsync/redsync/v4"
 	redsyncgoredis "github.com/go-redsync/redsync/v4/redis/goredis/v8"
-	"gorm.io/driver/mysql"
+	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 
-	mysqlDal "xzdp/biz/dal/mysql"
+	pgDal "xzdp/biz/dal/postgres"
 	"xzdp/biz/dal/redis"
 )
 
@@ -40,14 +40,13 @@ func TestShopInfoService_Run(t *testing.T) {
 	}
 	defer db.Close()
 
-	gormDB, err := gorm.Open(mysql.New(mysql.Config{
-		Conn:                      db,
-		SkipInitializeWithVersion: true,
+	gormDB, err := gorm.Open(postgres.New(postgres.Config{
+		Conn: db,
 	}), &gorm.Config{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	mysqlDal.DB = gormDB
+	pgDal.DB = gormDB
 	ConfigureCache(conf.GetConf())
 
 	var shopId int64 = 1
@@ -56,7 +55,7 @@ func TestShopInfoService_Run(t *testing.T) {
 	s := NewShopInfoService(ctx, c)
 
 	// Case 1: Cache Miss, DB Hit
-	mock.ExpectQuery(regexp.QuoteMeta("SELECT * FROM `tb_shop` WHERE `tb_shop`.`id` = ? ORDER BY `tb_shop`.`id` LIMIT ?")).
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT * FROM \"tb_shop\" WHERE \"tb_shop\".\"id\" = $1 ORDER BY \"tb_shop\".\"id\" LIMIT $2")).
 		WithArgs(shopId, 1).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "name"}).AddRow(1, "Test Shop"))
 

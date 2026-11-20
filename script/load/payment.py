@@ -23,7 +23,7 @@ async def run():
     v = VOUCHER
     sql(
         f"""INSERT INTO tb_voucher(id,shop_id,title,pay_value,actual_value) VALUES({v},{v},'checkout fixture',1,1);
-    INSERT INTO tb_seckill_voucher(voucher_id,stock,begin_time,end_time) VALUES({v},3,NOW()-INTERVAL 1 MINUTE,NOW()+INTERVAL 1 HOUR);
+    INSERT INTO tb_seckill_voucher(voucher_id,stock,begin_time,end_time) VALUES({v},3,NOW()-INTERVAL '1 minute',NOW()+INTERVAL '1 hour');
     INSERT INTO shop_staff VALUES({v},{v+1}),({v+1},{v+2});"""
     )
 
@@ -74,13 +74,13 @@ async def run():
         await asyncio.to_thread(
             sql,
             f"""START TRANSACTION;
-            UPDATE tb_voucher_order SET create_time=NOW()-INTERVAL 15 MINUTE+INTERVAL 3 SECOND WHERE id={expired};
-            SELECT GET_LOCK('{lock}',0); SELECT SLEEP(4); COMMIT;""",
+            UPDATE tb_voucher_order SET create_time=NOW()-INTERVAL '15 minute'+INTERVAL '3 second' WHERE id={expired};
+            SELECT pg_advisory_xact_lock(hashtextextended('{lock}',0)); SELECT pg_sleep(4); COMMIT;""",
         )
 
     holder = asyncio.create_task(hold())
     await asyncio.to_thread(
-        poll, lambda: sql(f"SELECT IS_USED_LOCK('{lock}') IS NOT NULL") == "1"
+        poll, lambda: sql(f"SELECT (NOT pg_try_advisory_lock(hashtextextended('{lock}',0)))::int") == "1"
     )
     assert not (await act("pay", expired, late))["success"]
     await holder

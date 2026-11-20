@@ -1,4 +1,4 @@
-package mysql
+package postgres
 
 import (
 	"context"
@@ -13,7 +13,7 @@ import (
 func QueryBlogByUserID(ctx context.Context, current int, user *user.UserDTO) (resp []*blog.Blog, err error) {
 	var blogs []*blog.Blog
 	pageSize := constants.MAX_PAGE_SIZE
-	err = DB.Where("user_id = ?", user.ID).Order("liked desc").Limit(pageSize).Offset((current - 1) * pageSize).Find(&blogs).Error
+	err = DB.Where("user_id = ?", user.ID).Order("liked DESC NULLS LAST").Limit(pageSize).Offset((current - 1) * pageSize).Find(&blogs).Error
 	if err != nil {
 		hlog.CtxErrorf(ctx, "query error: %v", err)
 		return nil, err
@@ -27,7 +27,7 @@ func QueryBlogByUserID(ctx context.Context, current int, user *user.UserDTO) (re
 }
 
 func QueryHotBlog(ctx context.Context, current int) ([]*blog.Blog, error) {
-	return readBlogRows(ctx, "ORDER BY b.liked DESC,b.id DESC LIMIT ? OFFSET ?", constants.MAX_PAGE_SIZE, (max(1, current)-1)*constants.MAX_PAGE_SIZE)
+	return readBlogRows(ctx, "ORDER BY b.liked DESC NULLS LAST,b.id DESC LIMIT ? OFFSET ?", constants.MAX_PAGE_SIZE, (max(1, current)-1)*constants.MAX_PAGE_SIZE)
 }
 
 func RankedBlogDetails(ctx context.Context, ids []int64) ([]*blog.Blog, error) {

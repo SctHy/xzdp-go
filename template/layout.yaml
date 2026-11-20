@@ -136,11 +136,11 @@ layouts:
       	Env string
 
       	Hertz Hertz `yaml:"hertz"`
-        MySQL MySQL `yaml:"mysql"`
+        Postgres Postgres `yaml:"postgres"`
         Redis Redis `yaml:"redis"`
       }
 
-      type MySQL struct {
+      type Postgres struct {
       	DSN string `yaml:"dsn"`
       }
 
@@ -239,8 +239,8 @@ layouts:
         log_max_age: 3
         log_max_backups: 50
 
-      mysql:
-        dsn: "gorm:gorm@tcp(127.0.0.1:3306)/gorm?charset=utf8&parseTime=True&loc=Local"
+      postgres:
+        dsn: "postgres://gorm:gorm@127.0.0.1:5432/gorm?sslmode=disable"
 
       redis:
         address: "127.0.0.1:6379"
@@ -262,8 +262,8 @@ layouts:
         log_max_age: 3
         log_max_backups: 50
 
-      mysql:
-        dsn: "gorm:gorm@tcp(127.0.0.1:3306)/gorm?charset=utf8&parseTime=True&loc=Local"
+      postgres:
+        dsn: "postgres://gorm:gorm@127.0.0.1:5432/gorm?sslmode=disable"
 
       redis:
         address: "127.0.0.1:6379"
@@ -285,8 +285,8 @@ layouts:
         log_max_age: 3
         log_max_backups: 50
 
-      mysql:
-        dsn: "gorm:gorm@tcp(127.0.0.1:3306)/gorm?charset=utf8&parseTime=True&loc=Local"
+      postgres:
+        dsn: "postgres://gorm:gorm@127.0.0.1:5432/gorm?sslmode=disable"
 
       redis:
         address: "127.0.0.1:6379"
@@ -301,25 +301,25 @@ layouts:
       package dal
 
       import (
-      	"{{.GoModule}}/biz/dal/mysql"
+          "{{.GoModule}}/biz/dal/postgres"
       	"{{.GoModule}}/biz/dal/redis"
       )
 
       func Init() {
       	redis.Init()
-      	mysql.Init()
+          postgres.Init()
       }
 
-  - path: biz/dal/mysql/init.go
+  - path: biz/dal/postgres/init.go
     delims:
       - ""
       - ""
     body: |-
-      package mysql
+      package postgres
 
       import (
       	"{{.GoModule}}/conf"
-      	"gorm.io/driver/mysql"
+          "gorm.io/driver/postgres"
       	"gorm.io/gorm"
       )
 
@@ -329,7 +329,7 @@ layouts:
       )
 
       func Init() {
-      	DB, err = gorm.Open(mysql.Open(conf.GetConf().MySQL.DSN),
+          DB, err = gorm.Open(postgres.Open(conf.GetConf().Postgres.DSN),
       		&gorm.Config{
       			PrepareStmt:            true,
       			SkipDefaultTransaction: true,
@@ -374,15 +374,14 @@ layouts:
     body: |-
       version: '3'
       services:
-        mysql:
-          image: 'mysql:latest'
+        postgres:
+          image: 'imresamu/postgis:17-3.5'
           ports:
-            - 3306:3306
+            - 5432:5432
           environment:
-            - MYSQL_DATABASE=gorm
-            - MYSQL_USER=gorm
-            - MYSQL_PASSWORD=gorm
-            - MYSQL_RANDOM_ROOT_PASSWORD="yes"
+            - POSTGRES_DB=gorm
+            - POSTGRES_USER=gorm
+            - POSTGRES_PASSWORD=gorm
         redis:
           image: 'redis:latest'
           ports:

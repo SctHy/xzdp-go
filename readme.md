@@ -5,6 +5,8 @@
 
 ## 本地运行与验收
 
+主库为 PostgreSQL 17 + PostGIS。已有 MySQL 数据的部署请先按[迁移与性能验收](docs/postgres-migration.md)完成导入，再启动新版 API。
+
 ```sh
 docker compose up -d --build --wait
 bash script/smoke-phase0.sh
@@ -42,11 +44,7 @@ nginx -c ~/nginx-1.18.0/conf/nginx.conf -p ~/nginx-1.18.0
         }
 ```
 #### 后端 
-- 在mysql新建数据库表`xzdp`  
-- 将`resources/xzdp.sql`导入到表`xzdp`  
-- 启动`redis-server`    
-- 复制`conf/test/conf.example.yaml`为`conf/test/conf.yaml`并修改其中的配置  
-- `go run xzdp`
+运行 `docker compose up -d --build --wait` 可启动数据库、缓存、消息队列及 API。空库首次启动会加载演示数据。连接外部 PostgreSQL 时设置 `XZDP_POSTGRES_DSN`，已有业务数据的迁移步骤见上方文档。
 
 ### 如何添加服务
 

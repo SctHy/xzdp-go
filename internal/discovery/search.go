@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"math"
+	"strconv"
 
 	"github.com/cloudwego/hertz/pkg/app"
 	"github.com/cloudwego/hertz/pkg/app/server"
@@ -29,8 +30,33 @@ type Query struct {
 
 func Register(h *server.Hertz, db *sql.DB) {
 	RegisterSearch(h, func(ctx context.Context, q Query) (*sql.Rows, error) {
-		return db.QueryContext(ctx, `SELECT id,name,type_id,ST_Distance_Sphere(POINT(x,y),POINT(?,?)) AS meters FROM tb_shop
- WHERE (?=0 OR type_id=?) AND LOCATE(?,name)>0 HAVING meters<=? ORDER BY meters,id LIMIT 10 OFFSET ?`, q.X, q.Y, q.Type, q.Type, q.Q, q.Radius, (max(1, q.Page)-1)*10)
+		// Preserve the radius of the previous SRID-0 distance calculation.
+		const scale = 6370986.0 / 6371008.7714150598
+		const origin = "ST_SetSRID(ST_MakePoint($1,$2),4326)::geography"
+		if q.Type == 0 && q.Q == "" && q.Page <= 1 {
+			// Fetch boundary ties so the public ID tie-break remains deterministic.
+			return db.QueryContext(ctx, `SELECT id,name,type_id,distance*$3 AS meters
+				FROM (SELECT id,name,type_id,location <-> `+origin+` AS distance FROM tb_shop
+				      ORDER BY distance FETCH FIRST 10 ROWS WITH TIES) nearest
+				WHERE distance <= $4 ORDER BY distance,id LIMIT 10`, q.X, q.Y, scale, q.Radius/scale)
+		}
+		query := "SELECT id,name,type_id,(location <-> " + origin + ")*$3 AS meters FROM tb_shop WHERE ST_DWithin(location," + origin + ",$4,false)"
+		args := []any{q.X, q.Y, scale, q.Radius / scale, (max(1, q.Page) - 1) * 10}
+		if q.Type != 0 {
+			args = append(args, q.Type)
+			query += " AND type_id=$6"
+		}
+		if q.Q != "" {
+			args = append(args, q.Q)
+			query += " AND strpos(lower(name), lower($" + strconv.Itoa(len(args)) + "))>0"
+		}
+		order := "location <-> " + origin + ",id"
+		if q.Type != 0 || q.Q != "" {
+			// Sort the qualifying rows. A distance-first index walk can visit many
+			// unrelated shops before it encounters enough keyword matches.
+			order = "meters,id"
+		}
+		return db.QueryContext(ctx, query+" ORDER BY "+order+" LIMIT 10 OFFSET $5", args...)
 	})
 }
 

@@ -34,20 +34,20 @@ func (s Sale) Warm(ctx context.Context, v int64) error {
 	if err != nil || exists > 0 {
 		return err
 	}
-	// Serialize cold initialization with stock changes in MySQL.
+	// Serialize cold initialization with stock changes in PostgreSQL.
 	tx, err := s.DB.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
 	var stock, start, end, unreleased int64
-	if err = tx.QueryRowContext(ctx, "SELECT stock,UNIX_TIMESTAMP(begin_time),UNIX_TIMESTAMP(end_time) FROM tb_seckill_voucher WHERE voucher_id=? FOR UPDATE", v).Scan(&stock, &start, &end); err != nil {
+	if err = tx.QueryRowContext(ctx, "SELECT stock,floor(extract(epoch FROM begin_time))::bigint,floor(extract(epoch FROM end_time))::bigint FROM tb_seckill_voucher WHERE voucher_id=$1 FOR UPDATE", v).Scan(&stock, &start, &end); err != nil {
 		return err
 	}
-	if err = tx.QueryRowContext(ctx, "SELECT COUNT(*) FROM trade_release WHERE voucher_id=?", v).Scan(&unreleased); err != nil {
+	if err = tx.QueryRowContext(ctx, "SELECT COUNT(*) FROM trade_release WHERE voucher_id=$1", v).Scan(&unreleased); err != nil {
 		return err
 	}
-	rows, err := tx.QueryContext(ctx, "SELECT user_id,id FROM tb_voucher_order WHERE voucher_id=?", v)
+	rows, err := tx.QueryContext(ctx, "SELECT user_id,id FROM tb_voucher_order WHERE voucher_id=$1", v)
 	if err != nil {
 		return err
 	}
@@ -157,7 +157,7 @@ func (s Sale) pending(ctx context.Context, id string) (Order, error) {
 }
 func (s Sale) Status(ctx context.Context, id string, u int64) (string, error) {
 	var status int
-	err := s.DB.QueryRowContext(ctx, "SELECT status FROM tb_voucher_order WHERE id=? AND user_id=?", id, u).Scan(&status)
+	err := s.DB.QueryRowContext(ctx, "SELECT status FROM tb_voucher_order WHERE id=$1 AND user_id=$2", id, u).Scan(&status)
 	if err == nil {
 		return map[int]string{unpaid: "unpaid", paid: "paid", used: "used", cancelled: "cancelled", 5: "refunding", 6: "refunded"}[status], nil
 	}
@@ -165,7 +165,7 @@ func (s Sale) Status(ctx context.Context, id string, u int64) (string, error) {
 		return "", err
 	}
 	var failed bool
-	if err = s.DB.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM trade_dead_letter WHERE order_id=? AND user_id=?)", id, u).Scan(&failed); err != nil {
+	if err = s.DB.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM trade_dead_letter WHERE order_id=$1 AND user_id=$2)", id, u).Scan(&failed); err != nil {
 		return "", err
 	}
 	if failed {

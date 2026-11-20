@@ -12,7 +12,7 @@ from sale import STOCK, USERS, VOUCHER, sessions, sql
 
 def prepare(path):
     sql(f"""INSERT INTO tb_seckill_voucher(voucher_id,stock,begin_time,end_time)
-            VALUES({VOUCHER},{STOCK},NOW()-INTERVAL 1 MINUTE,NOW()+INTERVAL 1 HOUR)""")
+            VALUES({VOUCHER},{STOCK},NOW()-INTERVAL '1 minute',NOW()+INTERVAL '1 hour')""")
     with tempfile.NamedTemporaryFile(mode="w", dir=path.parent, delete=False) as tmp:
         json.dump({"voucher": str(VOUCHER), "stock": STOCK, "users": sessions(USERS)}, tmp)
     os.replace(tmp.name, path)

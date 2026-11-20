@@ -1,79 +1,73 @@
-// Package migrate applies the embedded forward migrations to both new and existing volumes.
+// Package migrate installs the PostgreSQL schema in transactional, ordered migrations.
 package migrate
 
 import (
+	"bytes"
+	"compress/gzip"
 	"context"
 	"database/sql"
 	"embed"
 	"fmt"
-	"regexp"
-	"strings"
+	"io"
 )
 
-//go:embed sql/*.sql
+//go:embed pg/*.sql demo.sql.gz
 var files embed.FS
 
-var addField = regexp.MustCompile(`(?i)^ALTER TABLE (\w+) ADD (COLUMN|(?:UNIQUE )?(?:INDEX|KEY)) (\w+)`)
+func Apply(ctx context.Context, db *sql.DB) error { return Install(ctx, db, false) }
 
-func Apply(ctx context.Context, db *sql.DB) error {
-	conn, err := db.Conn(ctx)
+func Install(ctx context.Context, db *sql.DB, demo bool) error {
+	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
-	defer conn.Close()
-	var locked int
-	if err = conn.QueryRowContext(ctx, "SELECT GET_LOCK('xzdp:migrate',10)").Scan(&locked); err != nil {
+	defer tx.Rollback()
+	if _, err = tx.ExecContext(ctx, "SELECT pg_advisory_xact_lock(70751371)"); err != nil {
 		return err
 	}
-	if locked != 1 {
-		return fmt.Errorf("migration lock unavailable")
-	}
-	defer conn.ExecContext(context.Background(), "SELECT RELEASE_LOCK('xzdp:migrate')")
-	if _, err = conn.ExecContext(ctx, "CREATE TABLE IF NOT EXISTS schema_migrations(version VARCHAR(100) PRIMARY KEY)"); err != nil {
+	if _, err = tx.ExecContext(ctx, "CREATE TABLE IF NOT EXISTS schema_migrations(version text PRIMARY KEY)"); err != nil {
 		return err
 	}
-	entries, err := files.ReadDir("sql")
+	entries, err := files.ReadDir("pg")
 	if err != nil {
 		return err
 	}
 	for _, entry := range entries {
-		name := entry.Name()
 		var applied bool
-		if err = conn.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM schema_migrations WHERE version=?)", name).Scan(&applied); err != nil {
+		if err = tx.QueryRowContext(ctx, "SELECT EXISTS(SELECT FROM schema_migrations WHERE version=$1)", entry.Name()).Scan(&applied); err != nil {
 			return err
 		}
 		if applied {
 			continue
 		}
-		data, err := files.ReadFile("sql/" + name)
+		data, err := files.ReadFile("pg/" + entry.Name())
 		if err != nil {
 			return err
 		}
-		for _, stmt := range strings.Split(string(data), ";") {
-			stmt = strings.TrimSpace(stmt)
-			if stmt == "" {
-				continue
+		if _, err = tx.ExecContext(ctx, string(data)); err != nil {
+			return fmt.Errorf("%s: %w", entry.Name(), err)
+		}
+		if demo && entry.Name() == "001_platform.sql" {
+			compressed, err := files.ReadFile("demo.sql.gz")
+			if err != nil {
+				return err
 			}
-			if field := addField.FindStringSubmatch(stmt); field != nil {
-				query := "SELECT EXISTS(SELECT 1 FROM information_schema.statistics WHERE table_schema=DATABASE() AND table_name=? AND index_name=?)"
-				if field[2] == "COLUMN" {
-					query = "SELECT EXISTS(SELECT 1 FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name=? AND column_name=?)"
-				}
-				var present bool
-				if err = conn.QueryRowContext(ctx, query, field[1], field[3]).Scan(&present); err != nil {
-					return err
-				}
-				if present {
-					continue
-				}
+			reader, err := gzip.NewReader(bytes.NewReader(compressed))
+			if err != nil {
+				return err
 			}
-			if _, err = conn.ExecContext(ctx, stmt); err != nil {
-				return fmt.Errorf("migration %s: %w", name, err)
+			seed, err := io.ReadAll(reader)
+			reader.Close()
+			if err != nil {
+				return err
+			}
+			if _, err = tx.ExecContext(ctx, string(seed)); err != nil {
+				return fmt.Errorf("demo data: %w", err)
 			}
 		}
-		if _, err = conn.ExecContext(ctx, "INSERT INTO schema_migrations VALUES (?)", name); err != nil {
+		if _, err = tx.ExecContext(ctx, "INSERT INTO schema_migrations VALUES($1)", entry.Name()); err != nil {
 			return err
 		}
 	}
-	return nil
+	return tx.Commit()
 }

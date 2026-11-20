@@ -4,7 +4,7 @@ import (
 	"context"
 	"strconv"
 
-	"xzdp/biz/dal/mysql"
+	"xzdp/biz/dal/postgres"
 	user "xzdp/biz/model/user"
 
 	"github.com/cloudwego/hertz/pkg/app"
@@ -22,7 +22,7 @@ func NewUserInfoService(ctx context.Context, requestContext *app.RequestContext)
 	return &UserInfoService{
 		RequestContext: requestContext,
 		Context:        ctx,
-		DB:             mysql.DB,
+		DB:             postgres.DB,
 	}
 }
 
@@ -41,7 +41,7 @@ func (h *UserInfoService) Run(req *user.UserLoginFrom, c *app.RequestContext) (r
 	if err != nil {
 		return nil, err
 	}
-	userInfo, err := mysql.GetUserInfoById(h.Context, h.DB, id)
+	userInfo, err := postgres.GetUserInfoById(h.Context, h.DB, id)
 	if err == nil && userInfo != nil {
 		return userInfo, nil
 	}
@@ -50,7 +50,7 @@ func (h *UserInfoService) Run(req *user.UserLoginFrom, c *app.RequestContext) (r
 	if err != nil {
 		return nil, err
 	}
-	userInfo, err = mysql.GetUserInfoById(h.Context, h.DB, id)
+	userInfo, err = postgres.GetUserInfoById(h.Context, h.DB, id)
 	if err != nil {
 		return nil, err
 	}
@@ -61,7 +61,7 @@ func (h *UserInfoService) createNewUserWithId(id int64) error {
 	user := user.UserInfo{
 		UserId: id,
 	}
-	result := h.DB.Create(&user)
+	result := h.DB.WithContext(h.Context).Omit("Birthday").Create(&user)
 	hlog.CtxDebugf(h.Context, "result = %+v", result)
 	return result.Error
 }

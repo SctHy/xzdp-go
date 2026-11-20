@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"github.com/cloudwego/hertz/pkg/common/hlog"
 	redis2 "github.com/go-redis/redis/v8"
-	"xzdp/biz/dal/mysql"
+	"xzdp/biz/dal/postgres"
 	"xzdp/biz/dal/redis"
 	"xzdp/biz/model/user"
 	"xzdp/biz/pkg/constants"
@@ -32,7 +32,7 @@ func GetUserDtoFromCacheOrDB(ctx context.Context, userID int64) (*user.UserDTO, 
 	}
 
 	// If not in cache, fetch from DB.
-	interUser, err := mysql.GetById(ctx, userID)
+	interUser, err := postgres.GetById(ctx, userID)
 	if err != nil {
 		return nil, err
 	}

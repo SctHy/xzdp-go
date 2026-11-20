@@ -27,7 +27,7 @@ func TestCumulativeNonConsecutiveDaysAndMonthBoundary(t *testing.T) {
 		m.ExpectBegin()
 		m.ExpectQuery("SELECT COALESCE").WithArgs(month).WillReturnRows(sqlmock.NewRows([]string{"days", "id"}).AddRow(7, 1))
 		if date.Month() == 11 {
-			m.ExpectExec("INSERT IGNORE INTO sign_reward_grant").WithArgs(5, month, 1).WillReturnResult(sqlmock.NewResult(0, 1))
+			m.ExpectExec("INSERT INTO sign_reward_grant").WithArgs(5, month, 1).WillReturnResult(sqlmock.NewResult(0, 1))
 			m.ExpectQuery("SELECT voucher_id").WillReturnRows(sqlmock.NewRows([]string{"voucher"}).AddRow(1))
 			m.ExpectCommit()
 			v, e := s.progress(ctx, 5, date, true)

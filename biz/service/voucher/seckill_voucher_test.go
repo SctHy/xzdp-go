@@ -11,10 +11,10 @@ import (
 	goredis "github.com/go-redis/redis/v8"
 	"github.com/go-redsync/redsync/v4"
 	redsyncgoredis "github.com/go-redsync/redsync/v4/redis/goredis/v8"
-	"gorm.io/driver/mysql"
+	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 
-	mysqlDal "xzdp/biz/dal/mysql"
+	pgDal "xzdp/biz/dal/postgres"
 	"xzdp/biz/dal/redis"
 )
 
@@ -52,11 +52,9 @@ func TestSeckillVoucherService_Run(t *testing.T) {
 
 	defer db.Close()
 
-	gormDB, err := gorm.Open(mysql.New(mysql.Config{
+	gormDB, err := gorm.Open(postgres.New(postgres.Config{
 
 		Conn: db,
-
-		SkipInitializeWithVersion: true,
 	}), &gorm.Config{})
 
 	if err != nil {
@@ -65,7 +63,7 @@ func TestSeckillVoucherService_Run(t *testing.T) {
 
 	}
 
-	mysqlDal.DB = gormDB
+	pgDal.DB = gormDB
 
 	ctx := context.Background()
 

@@ -1,4 +1,4 @@
-package mysql
+package postgres
 
 import (
 	"context"
@@ -16,7 +16,7 @@ import (
 func QueryShopType(ctx context.Context) ([]*shop.ShopType, error) {
 	var shopTypeList []*shop.ShopType
 
-	err := DB.WithContext(ctx).Order("sort asc").Find(&shopTypeList).Error
+	err := DB.WithContext(ctx).Order("sort ASC NULLS FIRST").Find(&shopTypeList).Error
 	if err != nil {
 		return nil, err
 	}

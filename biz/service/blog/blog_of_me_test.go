@@ -8,10 +8,10 @@ import (
 	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/cloudwego/hertz/pkg/app"
 	"github.com/cloudwego/hertz/pkg/common/test/assert"
-	"gorm.io/driver/mysql"
+	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 
-	mysqlDal "xzdp/biz/dal/mysql"
+	pgDal "xzdp/biz/dal/postgres"
 	"xzdp/biz/model/blog"
 	"xzdp/biz/model/user"
 	"xzdp/biz/utils"
@@ -25,14 +25,13 @@ func TestBlogOfMeService_Run(t *testing.T) {
 	}
 	defer db.Close()
 
-	gormDB, err := gorm.Open(mysql.New(mysql.Config{
-		Conn:                      db,
-		SkipInitializeWithVersion: true,
+	gormDB, err := gorm.Open(postgres.New(postgres.Config{
+		Conn: db,
 	}), &gorm.Config{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	mysqlDal.DB = gormDB
+	pgDal.DB = gormDB
 
 	ctx := context.Background()
 	c := app.NewContext(1)
@@ -48,7 +47,7 @@ func TestBlogOfMeService_Run(t *testing.T) {
 	rows := sqlmock.NewRows([]string{"id", "user_id", "title"}).
 		AddRow(1, 1, "My Blog")
 
-	mock.ExpectQuery(regexp.QuoteMeta("SELECT * FROM `tb_blog` WHERE user_id = ? ORDER BY liked desc LIMIT ?")).
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT * FROM \"tb_blog\" WHERE user_id = $1 ORDER BY liked DESC NULLS LAST LIMIT $2")).
 		WithArgs(1, 10). // Assuming default params
 		WillReturnRows(rows)
 

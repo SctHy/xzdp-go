@@ -8,7 +8,7 @@ import (
 
 	"github.com/cloudwego/hertz/pkg/app"
 	"github.com/cloudwego/hertz/pkg/app/server"
-	"github.com/go-sql-driver/mysql"
+	"github.com/jackc/pgx/v5/pgconn"
 
 	"xzdp/biz/utils"
 	"xzdp/internal/api"
@@ -42,7 +42,7 @@ func (s service) slots(ctx context.Context, c *app.RequestContext) (any, error) 
 	if e != nil {
 		return nil, e
 	}
-	rows, e := s.db.QueryContext(ctx, "SELECT id,starts_at,ends_at,capacity,remaining FROM booking_slot WHERE shop_id=? AND starts_at>UTC_TIMESTAMP() ORDER BY starts_at", id)
+	rows, e := s.db.QueryContext(ctx, "SELECT id,starts_at,ends_at,capacity,remaining FROM booking_slot WHERE shop_id=$1 AND starts_at>statement_timestamp() ORDER BY starts_at", id)
 	if e != nil {
 		return nil, e
 	}
@@ -66,25 +66,19 @@ func (s service) createSlot(ctx context.Context, c *app.RequestContext) (any, er
 	if c.BindJSON(&v) != nil || !v.Start.After(time.Now()) || !v.End.After(v.Start) || v.Capacity < 1 || v.Capacity > 100000 {
 		return nil, api.Problem("时段或容量无效")
 	}
-	r, e := s.db.ExecContext(ctx, `INSERT IGNORE INTO booking_slot(shop_id,starts_at,ends_at,capacity,remaining) SELECT st.shop_id,?,?,?,? FROM shop_staff st JOIN tb_shop shop ON shop.id=st.shop_id WHERE st.shop_id=? AND st.user_id=?`, v.Start.UTC(), v.End.UTC(), v.Capacity, v.Capacity, id, utils.GetUser(ctx).ID)
-	if e != nil {
-		return nil, e
-	}
-	n, e := r.RowsAffected()
-	if e != nil {
-		return nil, e
-	}
-	if n != 1 {
+	var slotID int64
+	e = s.db.QueryRowContext(ctx, `INSERT INTO booking_slot(shop_id,starts_at,ends_at,capacity,remaining) SELECT st.shop_id,$1,$2,$3,$4 FROM shop_staff st JOIN tb_shop shop ON shop.id=st.shop_id WHERE st.shop_id=$5 AND st.user_id=$6 ON CONFLICT(shop_id,starts_at) DO NOTHING RETURNING id`, v.Start.UTC(), v.End.UTC(), v.Capacity, v.Capacity, id, utils.GetUser(ctx).ID).Scan(&slotID)
+	if errors.Is(e, sql.ErrNoRows) {
 		return nil, api.Problem("门店权限不足或时段已存在")
 	}
-	return r.LastInsertId()
+	return slotID, e
 }
 
-// Acquire the slot first so UTC_TIMESTAMP() in the following conditional write
+// Acquire the slot first so statement_timestamp() in the following conditional write
 // reflects the time after any wait for a competing reservation.
 func lockSlot(ctx context.Context, tx *sql.Tx, id int64) error {
 	var locked int64
-	return tx.QueryRowContext(ctx, "SELECT id FROM booking_slot WHERE id=? FOR UPDATE", id).Scan(&locked)
+	return tx.QueryRowContext(ctx, "SELECT id FROM booking_slot WHERE id=$1 FOR UPDATE", id).Scan(&locked)
 }
 
 func (s service) reserve(ctx context.Context, c *app.RequestContext) (any, error) {
@@ -109,7 +103,7 @@ func (s service) reserve(ctx context.Context, c *app.RequestContext) (any, error
 		return nil, e
 	}
 	var b Booking
-	e = tx.QueryRowContext(ctx, "SELECT id,slot_id,party_size,cancelled_at IS NOT NULL FROM booking WHERE user_id=? AND request_key=?", user, key).Scan(&b.ID, &b.Slot, &b.Party, &b.Cancelled)
+	e = tx.QueryRowContext(ctx, "SELECT id,slot_id,party_size,cancelled_at IS NOT NULL FROM booking WHERE user_id=$1 AND request_key=$2", user, []byte(key)).Scan(&b.ID, &b.Slot, &b.Party, &b.Cancelled)
 	if e == nil {
 		if b.Party != input.Party || b.Slot != slot {
 			return nil, api.Problem("幂等键已用于另一份预约")
@@ -119,7 +113,7 @@ func (s service) reserve(ctx context.Context, c *app.RequestContext) (any, error
 	if !errors.Is(e, sql.ErrNoRows) {
 		return nil, e
 	}
-	r, e := tx.ExecContext(ctx, "UPDATE booking_slot SET remaining=remaining-? WHERE id=? AND starts_at>UTC_TIMESTAMP() AND remaining>=?", input.Party, slot, input.Party)
+	r, e := tx.ExecContext(ctx, "UPDATE booking_slot SET remaining=remaining-$1 WHERE id=$2 AND starts_at>statement_timestamp() AND remaining>=$3", input.Party, slot, input.Party)
 	if e != nil {
 		return nil, e
 	}
@@ -130,9 +124,9 @@ func (s service) reserve(ctx context.Context, c *app.RequestContext) (any, error
 	if n != 1 {
 		return nil, api.Problem("时段不可用或余位不足")
 	}
-	r, e = tx.ExecContext(ctx, "INSERT INTO booking(slot_id,user_id,party_size,request_key) VALUES(?,?,?,?)", slot, user, input.Party, key)
-	var mysqlErr *mysql.MySQLError
-	if errors.As(e, &mysqlErr) && mysqlErr.Number == 1062 {
+	e = tx.QueryRowContext(ctx, "INSERT INTO booking(slot_id,user_id,party_size,request_key) VALUES($1,$2,$3,$4) RETURNING id", slot, user, input.Party, []byte(key)).Scan(&b.ID)
+	var pgErr *pgconn.PgError
+	if errors.As(e, &pgErr) && pgErr.Code == "23505" {
 		// A concurrent request used this key for a different slot.
 		return nil, api.Problem("幂等键已用于另一份预约")
 	}
@@ -140,10 +134,6 @@ func (s service) reserve(ctx context.Context, c *app.RequestContext) (any, error
 		return nil, e
 	}
 	b.Slot, b.Party = slot, input.Party
-	b.ID, e = r.LastInsertId()
-	if e != nil {
-		return nil, e
-	}
 	return b, tx.Commit()
 }
 func (s service) get(ctx context.Context, c *app.RequestContext) (any, error) {
@@ -152,7 +142,7 @@ func (s service) get(ctx context.Context, c *app.RequestContext) (any, error) {
 		return nil, e
 	}
 	var b Booking
-	e = s.db.QueryRowContext(ctx, "SELECT id,slot_id,party_size,cancelled_at IS NOT NULL FROM booking WHERE id=? AND user_id=?", id, utils.GetUser(ctx).ID).Scan(&b.ID, &b.Slot, &b.Party, &b.Cancelled)
+	e = s.db.QueryRowContext(ctx, "SELECT id,slot_id,party_size,cancelled_at IS NOT NULL FROM booking WHERE id=$1 AND user_id=$2", id, utils.GetUser(ctx).ID).Scan(&b.ID, &b.Slot, &b.Party, &b.Cancelled)
 	return b, e
 }
 func (s service) cancel(ctx context.Context, c *app.RequestContext) (any, error) {
@@ -166,7 +156,7 @@ func (s service) cancel(ctx context.Context, c *app.RequestContext) (any, error)
 	}
 	defer tx.Rollback()
 	var b Booking
-	e = tx.QueryRowContext(ctx, "SELECT id,slot_id,party_size,cancelled_at IS NOT NULL FROM booking WHERE id=? AND user_id=? FOR UPDATE", id, utils.GetUser(ctx).ID).Scan(&b.ID, &b.Slot, &b.Party, &b.Cancelled)
+	e = tx.QueryRowContext(ctx, "SELECT id,slot_id,party_size,cancelled_at IS NOT NULL FROM booking WHERE id=$1 AND user_id=$2 FOR UPDATE", id, utils.GetUser(ctx).ID).Scan(&b.ID, &b.Slot, &b.Party, &b.Cancelled)
 	if e != nil {
 		return nil, e
 	}
@@ -174,7 +164,7 @@ func (s service) cancel(ctx context.Context, c *app.RequestContext) (any, error)
 		if e = lockSlot(ctx, tx, b.Slot); e != nil {
 			return nil, e
 		}
-		r, e := tx.ExecContext(ctx, "UPDATE booking_slot SET remaining=remaining+? WHERE id=? AND starts_at>UTC_TIMESTAMP()", b.Party, b.Slot)
+		r, e := tx.ExecContext(ctx, "UPDATE booking_slot SET remaining=remaining+$1 WHERE id=$2 AND starts_at>statement_timestamp()", b.Party, b.Slot)
 		if e != nil {
 			return nil, e
 		}
@@ -185,7 +175,7 @@ func (s service) cancel(ctx context.Context, c *app.RequestContext) (any, error)
 		if n != 1 {
 			return nil, api.Problem("时段已开始")
 		}
-		if _, e = tx.ExecContext(ctx, "UPDATE booking SET cancelled_at=UTC_TIMESTAMP() WHERE id=?", id); e != nil {
+		if _, e = tx.ExecContext(ctx, "UPDATE booking SET cancelled_at=statement_timestamp() WHERE id=$1", id); e != nil {
 			return nil, e
 		}
 		b.Cancelled = true

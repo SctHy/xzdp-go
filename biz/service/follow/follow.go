@@ -6,7 +6,7 @@ import (
 	"github.com/cloudwego/hertz/pkg/app"
 	"github.com/cloudwego/hertz/pkg/common/hlog"
 	"strconv"
-	"xzdp/biz/dal/mysql"
+	"xzdp/biz/dal/postgres"
 	"xzdp/biz/dal/redis"
 	follow "xzdp/biz/model/follow"
 	"xzdp/biz/pkg/constants"
@@ -46,13 +46,13 @@ func (h *FollowService) Run(req *follow.FollowReq) (resp *follow.FollowResp, err
 			hlog.CtxErrorf(h.Context, "err = %v", err)
 			return nil, err
 		}
-		if !errors.Is(mysql.DB.Create(&f).Error, nil) {
+		if !errors.Is(postgres.DB.Create(&f).Error, nil) {
 			return nil, errors.New("关注失败")
 		}
 		return &follow.FollowResp{RespBody: &f}, nil
 	}
 	// 如果是false,则取消关注
-	if !errors.Is(mysql.DB.Where("user_id = ? and follow_user_id = ?", myID, targetUserId).Delete(&f).Error, nil) {
+	if !errors.Is(postgres.DB.Where("user_id = ? and follow_user_id = ?", myID, targetUserId).Delete(&f).Error, nil) {
 		return nil, errors.New("取消关注失败")
 	}
 	// 将取消关注的用户从redis的set中删除

@@ -2,7 +2,7 @@ package blog
 
 import (
 	"context"
-	"xzdp/biz/dal/mysql"
+	"xzdp/biz/dal/postgres"
 
 	"github.com/cloudwego/hertz/pkg/app"
 	blog "xzdp/biz/model/blog"
@@ -24,7 +24,7 @@ func (h *GetUserBlogService) Run(req *blog.BlogReq, uerID int64) (resp *[]*blog.
 	// hlog.CtxInfof(h.Context, "resp = %+v", resp)
 	//}()
 	// todo edit your code
-	u, err := mysql.GetById(h.Context, uerID)
+	u, err := postgres.GetById(h.Context, uerID)
 	if err != nil {
 		return nil, err
 	}
@@ -33,7 +33,7 @@ func (h *GetUserBlogService) Run(req *blog.BlogReq, uerID int64) (resp *[]*blog.
 		NickName: u.NickName,
 		Icon:     u.Icon,
 	}
-	blogList, err := mysql.QueryBlogByUserID(h.Context, int(req.Current), d)
+	blogList, err := postgres.QueryBlogByUserID(h.Context, int(req.Current), d)
 	if err != nil {
 		return nil, err
 	}

@@ -44,9 +44,7 @@ func TestDeliveryAfterCommitSkipsOrderAndStock(t *testing.T) {
 	db, m, err := sqlmock.New()
 	require.NoError(t, err)
 	defer db.Close()
-	m.ExpectBegin()
-	m.ExpectExec("INSERT IGNORE INTO trade_receipt").WithArgs("42").WillReturnResult(sqlmock.NewResult(0, 0))
-	m.ExpectCommit()
+	m.ExpectExec("SELECT persist_voucher_order").WithArgs("42", int64(1), int64(2)).WillReturnResult(sqlmock.NewResult(0, 1))
 	s := Sale{DB: db}
 	require.NoError(t, s.persist(context.Background(), Order{ID: "42", User: 1, Voucher: 2}))
 	require.NoError(t, m.ExpectationsWereMet())

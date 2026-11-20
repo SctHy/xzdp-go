@@ -11,7 +11,7 @@ import (
 func TestReadiness(t *testing.T) {
 	ok := func(context.Context) error { return nil }
 	fail := func(context.Context) error { return errors.New("offline") }
-	h := Checks{MySQL: ok, Redis: ok}
+	h := Checks{Postgres: ok, Redis: ok}
 	for _, tc := range []struct {
 		check func(context.Context) error
 		drain bool
@@ -47,7 +47,7 @@ func TestProbesShareDeadlineAndRunConcurrently(t *testing.T) {
 			return ctx.Err()
 		}
 	}
-	h := Checks{MySQL: probe, Redis: probe}
+	h := Checks{Postgres: probe, Redis: probe}
 	done := make(chan int, 1)
 	go func() { c := app.NewContext(0); h.Ready(context.Background(), c); done <- c.Response.StatusCode() }()
 

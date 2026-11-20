@@ -4,10 +4,11 @@ COPY go.mod go.sum ./
 ARG GOPROXY=https://proxy.golang.org,direct
 RUN go mod download
 COPY . .
-RUN CGO_ENABLED=0 go build -trimpath -o /api .
+RUN CGO_ENABLED=0 go build -trimpath -o /api . && CGO_ENABLED=0 go build -trimpath -o /dbcopy ./cmd/dbcopy
 FROM alpine:3.21
 WORKDIR /app
 RUN adduser -D app && mkdir upload && chown app upload
 COPY --from=build /api /app/api
+COPY --from=build /dbcopy /app/dbcopy
 USER app
 ENTRYPOINT ["/app/api"]

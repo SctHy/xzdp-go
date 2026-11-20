@@ -28,19 +28,19 @@ async def run():
     u, waiter = sessions(2)
     v = VOUCHER
     sql(
-        f"INSERT INTO tb_seckill_voucher(voucher_id,stock,begin_time,end_time) VALUES({v},1,NOW()+INTERVAL 3 MINUTE,NOW()+INTERVAL 1 HOUR)"
+        f"INSERT INTO tb_seckill_voucher(voucher_id,stock,begin_time,end_time) VALUES({v},1,NOW()+INTERVAL '3 minute',NOW()+INTERVAL '1 hour')"
     )
     sub, _ = await request(f"/voucher-order/subscribe/{v}", waiter)
     assert sub["success"], sub
     poll(lambda: any("开抢" in n["content"] for n in inbox(waiter)))
-    sql(f"UPDATE tb_seckill_voucher SET begin_time=NOW()-INTERVAL 1 SECOND WHERE voucher_id={v}")
+    sql(f"UPDATE tb_seckill_voucher SET begin_time=NOW()-INTERVAL '1 second' WHERE voucher_id={v}")
     tok, _ = await request(f"/voucher-order/token/{v}", u)
     accepted, _ = await request(f"/voucher-order/seckill/{v}", u, tok["data"])
     original = int(accepted["data"])
     poll(lambda: sql(f"SELECT status FROM tb_voucher_order WHERE id={original}") == "1")
     joined, _ = await request(f"/voucher-order/wait/{v}", waiter)
     assert joined["success"], joined
-    sql(f"UPDATE tb_voucher_order SET create_time=NOW()-INTERVAL 16 MINUTE WHERE id={original}")
+    sql(f"UPDATE tb_voucher_order SET create_time=NOW()-INTERVAL '16 minute' WHERE id={original}")
 
     def promoted():
         return sql(

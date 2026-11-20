@@ -7,7 +7,7 @@ import (
 
 	"github.com/cloudwego/hertz/pkg/app"
 
-	"xzdp/biz/dal/mysql"
+	"xzdp/biz/dal/postgres"
 	"xzdp/biz/dal/redis"
 	blog "xzdp/biz/model/blog"
 	"xzdp/biz/pkg/constants"
@@ -24,11 +24,11 @@ func NewGetBlogService(Context context.Context, RequestContext *app.RequestConte
 }
 
 func (h *GetBlogService) Run(req *string) (resp *blog.Blog, err error) {
-	if !errors.Is(mysql.DB.WithContext(h.Context).First(&resp, "id = ?", req).Error, nil) {
+	if !errors.Is(postgres.DB.WithContext(h.Context).First(&resp, "id = ?", req).Error, nil) {
 		return nil, errors.New("未找到该博客")
 	}
 	userId := resp.UserId
-	user, err := mysql.GetById(h.Context, userId)
+	user, err := postgres.GetById(h.Context, userId)
 	if err != nil {
 		return nil, err
 	}

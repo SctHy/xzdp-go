@@ -3,7 +3,7 @@ package dal
 import (
 	"context"
 	"time"
-	"xzdp/biz/dal/mysql"
+	"xzdp/biz/dal/postgres"
 	"xzdp/biz/dal/redis"
 )
 
@@ -11,7 +11,7 @@ import (
 func Init() {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	pool, err := mysql.Open(ctx)
+	pool, err := postgres.Open(ctx)
 	if err != nil {
 		panic(err)
 	}

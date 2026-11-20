@@ -5,7 +5,7 @@ import (
 
 	shop "xzdp/biz/model/shop"
 
-	"xzdp/biz/dal/mysql"
+	"xzdp/biz/dal/postgres"
 	"xzdp/biz/pkg/constants"
 
 	"github.com/cloudwego/hertz/pkg/app"
@@ -27,7 +27,7 @@ func (h *ShopOfTypeService) Run(req *shop.ShopOfTypeReq) (resp *[]*shop.Shop, er
 	//}()
 	// todo edit your code
 	var shops []*shop.Shop
-	err = mysql.DB.Where("type_id = ?", req.TypeId).Offset(int((req.Current - 1) * constants.DEFAULT_PAGE_SIZE)).Limit(constants.DEFAULT_PAGE_SIZE).Find(&shops).Error
+	err = postgres.DB.Where("type_id = ?", req.TypeId).Offset(int((req.Current - 1) * constants.DEFAULT_PAGE_SIZE)).Limit(constants.DEFAULT_PAGE_SIZE).Find(&shops).Error
 	if err != nil {
 		return nil, err
 	}

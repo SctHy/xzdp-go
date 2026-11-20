@@ -4,7 +4,7 @@ import (
 	"context"
 	"errors"
 	"github.com/cloudwego/hertz/pkg/app"
-	"xzdp/biz/dal/mysql"
+	"xzdp/biz/dal/postgres"
 	"xzdp/biz/dal/redis"
 	user "xzdp/biz/model/user"
 	"xzdp/biz/pkg/constants"
@@ -31,7 +31,7 @@ func (h *GetLikesService) Run(req *string) (resp *[]*user.UserDTO, err error) {
 		return nil, err
 	}
 	var users []*user.User
-	if !errors.Is(mysql.DB.Where("id in ?", ids).Find(&users).Error, nil) {
+	if !errors.Is(postgres.DB.Where("id in ?", ids).Find(&users).Error, nil) {
 		return nil, errors.New("获取失败")
 	}
 	var userDtos []*user.UserDTO

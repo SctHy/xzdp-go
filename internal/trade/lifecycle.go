@@ -26,7 +26,7 @@ func (s Sale) Cancel(ctx context.Context, id string, user int64) error {
 	defer tx.Rollback()
 	var v int64
 	var status int
-	if err = tx.QueryRowContext(ctx, "SELECT voucher_id,status FROM tb_voucher_order WHERE id=? AND user_id=? FOR UPDATE", id, user).Scan(&v, &status); err != nil {
+	if err = tx.QueryRowContext(ctx, "SELECT voucher_id,status FROM tb_voucher_order WHERE id=$1 AND user_id=$2 FOR UPDATE", id, user).Scan(&v, &status); err != nil {
 		return err
 	}
 	if status == cancelled {
@@ -35,13 +35,13 @@ func (s Sale) Cancel(ctx context.Context, id string, user int64) error {
 	if status != unpaid {
 		return errors.New("订单不可取消")
 	}
-	if _, err = tx.ExecContext(ctx, "UPDATE tb_voucher_order SET status=? WHERE id=?", cancelled, id); err != nil {
+	if _, err = tx.ExecContext(ctx, "UPDATE tb_voucher_order SET status=$1 WHERE id=$2", cancelled, id); err != nil {
 		return err
 	}
-	if _, err = tx.ExecContext(ctx, "UPDATE tb_seckill_voucher SET stock=stock+1 WHERE voucher_id=?", v); err != nil {
+	if _, err = tx.ExecContext(ctx, "UPDATE tb_seckill_voucher SET stock=stock+1 WHERE voucher_id=$1", v); err != nil {
 		return err
 	}
-	if _, err = tx.ExecContext(ctx, "INSERT INTO trade_release(order_id,voucher_id) VALUES(?,?)", id, v); err != nil {
+	if _, err = tx.ExecContext(ctx, "INSERT INTO trade_release(order_id,voucher_id) VALUES($1,$2)", id, v); err != nil {
 		return err
 	}
 	return tx.Commit()
@@ -87,19 +87,19 @@ func (s Sale) release(ctx context.Context, id string, v int64) error {
 	if err != nil {
 		return err
 	}
-	_, err = s.DB.ExecContext(ctx, "DELETE FROM trade_release WHERE order_id=?", id)
+	_, err = s.DB.ExecContext(ctx, "DELETE FROM trade_release WHERE order_id=$1", id)
 	return err
 }
 
 func (s Sale) Subscribe(ctx context.Context, v, u int64) error {
 	var future bool
-	if err := s.DB.QueryRowContext(ctx, "SELECT begin_time>NOW() FROM tb_seckill_voucher WHERE voucher_id=?", v).Scan(&future); err != nil {
+	if err := s.DB.QueryRowContext(ctx, "SELECT begin_time>NOW() FROM tb_seckill_voucher WHERE voucher_id=$1", v).Scan(&future); err != nil {
 		return err
 	}
 	if !future {
 		return errors.New("活动已开始")
 	}
-	_, err := s.DB.ExecContext(ctx, "INSERT IGNORE INTO voucher_subscription(voucher_id,user_id) VALUES(?,?)", v, u)
+	_, err := s.DB.ExecContext(ctx, "INSERT INTO voucher_subscription(voucher_id,user_id) VALUES($1,$2) ON CONFLICT DO NOTHING", v, u)
 	return err
 }
 
@@ -109,7 +109,7 @@ type Notice struct {
 }
 
 func (s Sale) Inbox(ctx context.Context, u int64) ([]Notice, error) {
-	rows, err := s.DB.QueryContext(ctx, "SELECT id,content FROM trade_notice WHERE user_id=? ORDER BY id DESC LIMIT 50", u)
+	rows, err := s.DB.QueryContext(ctx, "SELECT id,content FROM trade_notice WHERE user_id=$1 ORDER BY id DESC LIMIT 50", u)
 	if err != nil {
 		return nil, err
 	}
@@ -126,7 +126,7 @@ func (s Sale) Inbox(ctx context.Context, u int64) ([]Notice, error) {
 }
 
 func (s Sale) expire(ctx context.Context) error {
-	rows, err := s.DB.QueryContext(ctx, "SELECT id,user_id FROM tb_voucher_order WHERE status=1 AND create_time<=NOW()-INTERVAL 15 MINUTE ORDER BY create_time LIMIT 100")
+	rows, err := s.DB.QueryContext(ctx, "SELECT id,user_id FROM tb_voucher_order WHERE status=1 AND create_time<=statement_timestamp()-interval '15 minutes' ORDER BY create_time LIMIT 100")
 	if err != nil {
 		return err
 	}
@@ -163,17 +163,17 @@ func (s Sale) releaseBatch(ctx context.Context) error {
 }
 
 func (s Sale) reminders(ctx context.Context) error {
-	_, err := s.DB.ExecContext(ctx, `INSERT IGNORE INTO trade_notice(event_key,user_id,content)
+	_, err := s.DB.ExecContext(ctx, `INSERT INTO trade_notice(event_key,user_id,content)
  SELECT CONCAT('opening:',v.voucher_id,':',s.user_id),s.user_id,CONCAT('优惠券 ',v.voucher_id,' 即将开抢')
  FROM voucher_subscription s JOIN tb_seckill_voucher v ON s.voucher_id=v.voucher_id
- WHERE v.begin_time BETWEEN NOW() AND NOW()+INTERVAL 5 MINUTE`)
+ WHERE v.begin_time BETWEEN NOW() AND NOW()+interval '5 minutes' ON CONFLICT DO NOTHING`)
 	return err
 }
 
 var pushNotice = redis.NewScript(`if redis.call('SET',KEYS[2],1,'NX','EX',604800) then redis.call('XADD',KEYS[1],'*','message',ARGV[1]) end return 1`)
 
 func (s Sale) dispatch(ctx context.Context) error {
-	rows, err := s.DB.QueryContext(ctx, "SELECT id,user_id,content FROM trade_notice WHERE pushed=0 ORDER BY id LIMIT 100")
+	rows, err := s.DB.QueryContext(ctx, "SELECT id,user_id,content FROM trade_notice WHERE NOT pushed ORDER BY id LIMIT 100")
 	if err != nil {
 		return err
 	}
@@ -188,7 +188,7 @@ func (s Sale) dispatch(ctx context.Context) error {
 		if err = pushNotice.Run(ctx, s.Redis, []string{constants.MESSAGE_STREAM_KEY + strconv.FormatInt(u, 10), fmt.Sprintf("%snotice:%d", s.Prefix, id)}, body).Err(); err != nil {
 			return err
 		}
-		if _, err = s.DB.ExecContext(ctx, "UPDATE trade_notice SET pushed=1 WHERE id=?", id); err != nil {
+		if _, err = s.DB.ExecContext(ctx, "UPDATE trade_notice SET pushed=true WHERE id=$1", id); err != nil {
 			return err
 		}
 	}
@@ -211,7 +211,7 @@ func (s Sale) reconcile(ctx context.Context, cursor uint64) (uint64, error) {
 		}
 		var stock int
 		var existing, dead bool
-		err = s.DB.QueryRowContext(ctx, `SELECT stock,EXISTS(SELECT 1 FROM tb_voucher_order WHERE id=? AND voucher_id=? AND user_id=?),EXISTS(SELECT 1 FROM trade_dead_letter WHERE order_id=?) FROM tb_seckill_voucher WHERE voucher_id=?`, id, o.Voucher, o.User, id, o.Voucher).Scan(&stock, &existing, &dead)
+		err = s.DB.QueryRowContext(ctx, `SELECT stock,EXISTS(SELECT 1 FROM tb_voucher_order WHERE id=$1 AND voucher_id=$2 AND user_id=$3),EXISTS(SELECT 1 FROM trade_dead_letter WHERE order_id=$4) FROM tb_seckill_voucher WHERE voucher_id=$5`, id, o.Voucher, o.User, id, o.Voucher).Scan(&stock, &existing, &dead)
 		if err != nil {
 			return cursor, err
 		}
