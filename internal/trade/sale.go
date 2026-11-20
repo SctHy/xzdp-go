@@ -34,11 +34,44 @@ func (s Sale) Warm(ctx context.Context, v int64) error {
 	if err != nil || exists > 0 {
 		return err
 	}
-	var stock, start, end int64
-	if err = s.DB.QueryRowContext(ctx, "SELECT stock,UNIX_TIMESTAMP(begin_time),UNIX_TIMESTAMP(end_time) FROM tb_seckill_voucher WHERE voucher_id=?", v).Scan(&stock, &start, &end); err != nil {
+	// Serialize cold initialization with stock changes in MySQL.
+	tx, err := s.DB.BeginTx(ctx, nil)
+	if err != nil {
 		return err
 	}
-	return redis.NewScript(`if redis.call('EXISTS',KEYS[1])==0 then redis.call('HSET',KEYS[1],'stock',ARGV[1],'start',ARGV[2],'end',ARGV[3]) end return 1`).Run(ctx, s.Redis, []string{key}, stock, start, end).Err()
+	defer tx.Rollback()
+	var stock, start, end, unreleased int64
+	if err = tx.QueryRowContext(ctx, "SELECT stock,UNIX_TIMESTAMP(begin_time),UNIX_TIMESTAMP(end_time) FROM tb_seckill_voucher WHERE voucher_id=? FOR UPDATE", v).Scan(&stock, &start, &end); err != nil {
+		return err
+	}
+	if err = tx.QueryRowContext(ctx, "SELECT COUNT(*) FROM trade_release WHERE voucher_id=?", v).Scan(&unreleased); err != nil {
+		return err
+	}
+	rows, err := tx.QueryContext(ctx, "SELECT user_id,id FROM tb_voucher_order WHERE voucher_id=?", v)
+	if err != nil {
+		return err
+	}
+	args := []interface{}{stock - unreleased, start, end}
+	for rows.Next() {
+		var u, id string
+		if err = rows.Scan(&u, &id); err != nil {
+			rows.Close()
+			return err
+		}
+		args = append(args, u, id)
+	}
+	if err = rows.Err(); err != nil {
+		rows.Close()
+		return err
+	}
+	rows.Close()
+	err = redis.NewScript(`if redis.call('EXISTS',KEYS[1])==0 then
+ redis.call('HSET',KEYS[1],'stock',ARGV[1],'start',ARGV[2],'end',ARGV[3])
+ for i=4,#ARGV,2 do redis.call('HSET',KEYS[2],ARGV[i],ARGV[i+1]) end end return 1`).Run(ctx, s.Redis, []string{key, key + ":buyers"}, args...).Err()
+	if err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 var issue = redis.NewScript(`

@@ -71,9 +71,13 @@ func run(ctx context.Context) error {
 		return err
 	}
 	sale := trade.Sale{DB: pool, Redis: redis.RedisClient, Prefix: trade.Prefix(cfg.Env)}
+	if err = sale.Preheat(ctx); err != nil {
+		return err
+	}
 	shopCache := shopservice.ConfigureCache(cfg)
 	workers, stopWorkers := context.WithCancel(ctx)
 	var cacheGroup errgroup.Group
+	cacheGroup.Go(func() error { return sale.Maintain(workers) })
 	cacheGroup.Go(func() error { return sale.Run(workers, cfg.KafkaBroker, cfg.Env) })
 	cacheGroup.Go(func() error { shopCache.Subscribe(workers); return nil })
 	cacheGroup.Go(func() error { shopCache.Warm(workers); return nil })

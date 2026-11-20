@@ -43,6 +43,9 @@ func (s Sale) persist(ctx context.Context, o Order) error {
 	if n != 1 {
 		return errors.New("database stock exhausted")
 	}
+	if _, err = tx.ExecContext(ctx, "INSERT INTO trade_notice(event_key,user_id,content) VALUES(?,?,?)", "order:"+o.ID, o.User, "优惠券订单 "+o.ID+" 已生成"); err != nil {
+		return err
+	}
 	return tx.Commit()
 }
 

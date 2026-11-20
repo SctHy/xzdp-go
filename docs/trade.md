@@ -20,3 +20,9 @@ internal/trade/sale.go 管理资格，worker.go 负责传输和落库，http.go 
 Redis 前缀为 xzdp:<env>:trade:。v:<id> 保存库存与时间窗口，:buyers 是用户到订单的映射，:token:<user> 是短期凭据；pending 保存未完成的投递记录，relay 按下次投递时间排序。序列键 sequence 不得重置。Kafka 主 topic 为 xzdp-<env>-orders，死信 topic 加 .dlq。
 
 设计对照：[Go Lua 入队](https://github.com/wengyuechuan/hm-dianping-go/blob/main/script/seckill.lua)、[Go Kafka pending 重投](https://github.com/amemiya02/hmdp-go/blob/main/internal/service/voucher_order.go)。本项目使用同一个订单号串起预扣、投递和 DB 凭据。
+
+## 关单、候补与提醒
+
+POST /voucher-order/cancel/:id 取消本人未支付订单；POST /voucher-order/wait/:id 对售罄的活动候补；POST /voucher-order/subscribe/:id 订阅未开始活动；GET /notifications 返回本人最近 50 条通知。订单状态只在 SQL 中使用条件更新。定时任务扫描超过 15 分钟的未支付订单，复用取消事务。
+数据库迁移 003 增加库存释放事件、订阅与站内通知。释放任务在 Redis 利用订单号去重，将库存交给最早的候补者或退回库存。候补订单复用同一条 Kafka 消费链。订阅提醒在开抢前五分钟写入通知表，再发送到已有 SSE Stream。
+参考 [Java Plus 延时通知](https://github.com/java-up-up/hmdp-plus/tree/HEAD/hmdp-core-service/src/main/java/org/javaup/delay/consumer) 和 [go-zero 订单生命周期](https://github.com/me-cs/dianping-gozero/tree/main/rpc/order/internal/logic)。

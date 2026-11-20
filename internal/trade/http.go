@@ -11,6 +11,21 @@ import (
 )
 
 func (s Sale) Register(h *server.Hertz) {
+	h.GET("/notifications", func(ctx context.Context, c *app.RequestContext) {
+		items, err := s.Inbox(ctx, utils.GetUser(ctx).ID)
+		if err != nil {
+			utils.SendErrResponse(ctx, c, 500, err)
+			return
+		}
+		utils.SendSuccessResponse(ctx, c, 200, items)
+	})
+	h.POST("/voucher-order/wait/:id", s.action(func(ctx context.Context, v, u int64, _ *app.RequestContext) (any, error) { return s.Wait(ctx, v, u) }))
+	h.POST("/voucher-order/subscribe/:id", s.action(func(ctx context.Context, v, u int64, _ *app.RequestContext) (any, error) {
+		return "subscribed", s.Subscribe(ctx, v, u)
+	}))
+	h.POST("/voucher-order/cancel/:id", s.action(func(ctx context.Context, id, u int64, _ *app.RequestContext) (any, error) {
+		return "cancelled", s.Cancel(ctx, strconv.FormatInt(id, 10), u)
+	}))
 	h.POST("/voucher-order/token/:id", s.action(func(ctx context.Context, id, user int64, c *app.RequestContext) (any, error) {
 		return s.Token(ctx, id, user)
 	}))
