@@ -8,7 +8,6 @@ import (
 	shop "xzdp/biz/model/shop"
 
 	"github.com/cloudwego/hertz/pkg/app"
-	"github.com/cloudwego/hertz/pkg/common/hlog"
 )
 
 type ShopOfTypeGeoService struct {
@@ -21,14 +20,6 @@ func NewShopOfTypeGeoService(Context context.Context, RequestContext *app.Reques
 }
 
 func (h *ShopOfTypeGeoService) Run(req *shop.ShopOfTypeGeoReq) (resp *[]*shop.Shop, err error) {
-	defer func() {
-		hlog.CtxInfof(h.Context, "req = %+v", req)
-		hlog.CtxInfof(h.Context, "resp = %+v", resp)
-	}()
-	err = mysql.LoadShopListToCache(h.Context)
-	if err != nil {
-		return nil, err
-	}
 	shops, err := redis.QueryShopWithDistance(h.Context, req)
 	if err != nil {
 		return nil, err

@@ -26,6 +26,7 @@ import (
 	shopservice "xzdp/biz/service/shop"
 	"xzdp/conf"
 	"xzdp/internal/migrate"
+	"xzdp/internal/nearby"
 	"xzdp/internal/observe"
 	"xzdp/internal/social"
 	"xzdp/internal/trade"
@@ -73,6 +74,10 @@ func run(ctx context.Context) error {
 	if err = migrate.Apply(ctx, pool); err != nil {
 		return err
 	}
+	geo := nearby.Index{DB: pool, Redis: redis.RedisClient, Prefix: nearby.Prefix(cfg.Env)}
+	if err := geo.Warm(ctx); err != nil {
+		return err
+	}
 	sale := trade.Sale{DB: pool, Redis: redis.RedisClient, Prefix: trade.Prefix(cfg.Env)}
 	if err = sale.Preheat(ctx); err != nil {
 		return err
@@ -82,6 +87,7 @@ func run(ctx context.Context) error {
 	socialStore := social.Store{DB: pool, Redis: redis.RedisClient, Prefix: "xzdp:" + cfg.Env + ":social:"}
 	visitors := interceptor.NewVisitors(redis.RedisClient)
 	var cacheGroup errgroup.Group
+	cacheGroup.Go(func() error { return geo.Run(workers) })
 	cacheGroup.Go(func() error { return visitors.Run(workers) })
 	cacheGroup.Go(func() error { return socialStore.Run(workers) })
 	cacheGroup.Go(func() error { return sale.Maintain(workers) })

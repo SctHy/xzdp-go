@@ -5,9 +5,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"strconv"
 	"xzdp/biz/model/shop"
 	"xzdp/biz/pkg/constants"
+	"xzdp/conf"
+	"xzdp/internal/nearby"
 
 	"github.com/go-redis/redis/v8"
 )
@@ -34,14 +37,18 @@ func GetShopFromCache(ctx context.Context, key string) (*shop.Shop, error) {
 }
 
 func QueryShopWithDistance(ctx context.Context, req *shop.ShopOfTypeGeoReq) (resp *[]*shop.Shop, err error) {
-	current := req.Current
+	current := max(req.Current, 1)
+	if current > math.MaxInt64/constants.DEFAULT_PAGE_SIZE {
+		return &[]*shop.Shop{}, nil
+	}
 	from := (current - 1) * constants.DEFAULT_PAGE_SIZE
 	end := current * constants.DEFAULT_PAGE_SIZE
 
-	key := constants.SHOP_GEO_KEY + strconv.Itoa(int(req.TypeId))
+	key := nearby.Prefix(conf.GetEnv()) + strconv.Itoa(int(req.TypeId))
 	geoRadiusQuery := redis.GeoRadiusQuery{
 		Radius:   req.Distance,
 		WithDist: true,
+		Unit:     "m",
 		Sort:     "ASC",
 		Count:    int(end),
 	}
@@ -59,7 +66,7 @@ func QueryShopWithDistance(ctx context.Context, req *shop.ShopOfTypeGeoReq) (res
 	}
 
 	shops := make([]*shop.Shop, 0, len(locations))
-	for _, loc := range locations[from:end] {
+	for _, loc := range locations[from:] {
 		id, _ := strconv.ParseInt(loc.Name, 10, 64)
 		shops = append(shops, &shop.Shop{
 			ID:       id,

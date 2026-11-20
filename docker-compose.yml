@@ -7,7 +7,7 @@ services:
         FROM mysql:8.4
         COPY xzdp.sql /docker-entrypoint-initdb.d/10-xzdp.sql
     mem_limit: 512m
-    command: [--innodb-buffer-pool-size=96M, --max-connections=40, --performance-schema=OFF]
+    command: [--log-bin-trust-function-creators=ON, --innodb-buffer-pool-size=96M, --max-connections=40, --performance-schema=OFF]
     environment:
       MYSQL_DATABASE: xzdp
       MYSQL_USER: xzdp

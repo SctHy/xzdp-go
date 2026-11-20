@@ -43,17 +43,29 @@ func QueryByID(ctx context.Context, id int64) (*shop.Shop, error) {
 }
 
 func QueryAllShop(ctx context.Context, shops *[]*shop.Shop) (*[]*shop.Shop, error) {
-	for i := range *shops {
-		dist := (*shops)[i].Distance
-		shop, err := QueryByID(ctx, (*shops)[i].ID)
-		if err != nil {
-			return nil, err
-		}
-		shop.Distance = dist
-		(*shops)[i] = shop
-
+	if len(*shops) == 0 {
+		return shops, nil
 	}
-	return shops, nil
+	var ids []int64
+	for _, item := range *shops {
+		ids = append(ids, item.ID)
+	}
+	var records []*shop.Shop
+	if err := DB.WithContext(ctx).Where("id IN ?", ids).Find(&records).Error; err != nil {
+		return nil, err
+	}
+	byID := make(map[int64]*shop.Shop, len(records))
+	for _, item := range records {
+		byID[item.ID] = item
+	}
+	result := make([]*shop.Shop, 0, len(records))
+	for _, hit := range *shops {
+		if item := byID[hit.ID]; item != nil && item.TypeId == hit.TypeId {
+			item.Distance = hit.Distance
+			result = append(result, item)
+		}
+	}
+	return &result, nil
 }
 
 func queryByID1(ctx context.Context, id int64) (*shop.Shop, error) {
@@ -134,37 +146,6 @@ func queryByID2(ctx context.Context, id int64) (*shop.Shop, error) {
 	}
 	redis.RedisClient.Set(ctx, key, string(shopJson), constants.CACHE_SHOP_TTL).Err()
 	return &shop, nil
-}
-
-func LoadShopListToCache(ctx context.Context) error {
-	shopMap := make(map[int64][]shop.Shop)
-	var shops []*shop.Shop
-	err := DB.Find(&shops).Error
-	if err != nil {
-		return err
-	}
-	for _, v := range shops {
-		shopMap[v.TypeId] = append(shopMap[v.TypeId], *v)
-	}
-	for typeId, shops := range shopMap {
-		key := constants.SHOP_GEO_KEY + fmt.Sprint(typeId)
-
-		var locations []*redis2.GeoLocation
-		for _, shop := range shops {
-			location := &redis2.GeoLocation{
-				Name:      fmt.Sprint(shop.ID),
-				Longitude: shop.X,
-				Latitude:  shop.Y,
-			}
-			locations = append(locations, location)
-		}
-
-		_, err := redis.RedisClient.GeoAdd(ctx, key, locations...).Result()
-		if err != nil {
-			return err
-		}
-	}
-	return nil
 }
 
 func ShopIDs(ctx context.Context) ([]int64, error) {
