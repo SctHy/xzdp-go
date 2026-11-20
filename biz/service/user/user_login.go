@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"time"
 
 	"xzdp/biz/dal/mysql"
 	"xzdp/biz/dal/redis"
@@ -64,11 +63,6 @@ func (h *UserLoginService) Run(req *model.UserLoginFrom) (resp *model.Result, er
 		return nil, fmt.Errorf("code not match")
 	}
 
-	token, err := utils.RandomUUID()
-	if err != nil {
-		return nil, err
-	}
-
 	var user model.User
 	result := h.DB.WithContext(h.Context).First(&user, "phone = ?", phone)
 
@@ -85,12 +79,7 @@ func (h *UserLoginService) Run(req *model.UserLoginFrom) (resp *model.Result, er
 
 	var userdto model.UserDTO
 	copier.Copy(&userdto, &user)
-	key := constants.LOGIN_USER_KEY + token
-	_, err = h.Redis.TxPipelined(h.Context, func(pipe red.Pipeliner) error {
-		pipe.HSet(h.Context, key, "id", userdto.ID, "nick_name", userdto.NickName, "icon", userdto.Icon)
-		pipe.Expire(h.Context, key, time.Minute)
-		return nil
-	})
+	token, err := utils.CreateSession(h.Context, h.Redis, userdto.ID, userdto.NickName, userdto.Icon)
 	if err != nil {
 		hlog.CtxErrorf(h.Context, "err = %s", err.Error())
 		hlog.CtxErrorf(h.Context, "userdto = %+v", userdto)

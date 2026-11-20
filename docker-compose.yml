@@ -59,6 +59,10 @@ services:
       XZDP_MYSQL_DSN: "xzdp:${MYSQL_PASSWORD:-xzdp-local}@tcp(mysql:3306)/xzdp?parseTime=true&charset=utf8mb4&timeout=3s"
       XZDP_KAFKA_BROKER: kafka:9092
       XZDP_REDIS_ADDRESS: redis:6379
+      XZDP_SMTP_ADDRESS: ${XZDP_SMTP_ADDRESS:-}
+      XZDP_SMTP_FROM: ${XZDP_SMTP_FROM:-noreply@xzdp.local}
+      XZDP_SMTP_USER: ${XZDP_SMTP_USER:-}
+      XZDP_SMTP_PASSWORD: ${XZDP_SMTP_PASSWORD:-}
       XZDP_MOCK_PAYMENT: ${XZDP_MOCK_PAYMENT:-false}
       XZDP_PPROF: ${XZDP_PPROF:-false}
       XZDP_ACCESS_LOG: ${XZDP_ACCESS_LOG:-true}
@@ -73,6 +77,11 @@ services:
       interval: 5s
       timeout: 3s
       retries: 15
+  mailpit:
+    image: axllent/mailpit:v1.21.8
+    profiles: [mail]
+    mem_limit: 64m
+    ports: ["127.0.0.1:${MAILPIT_PORT:-8025}:8025"]
   prometheus:
     build:
       context: ./deploy/prometheus

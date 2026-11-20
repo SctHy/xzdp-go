@@ -33,6 +33,7 @@ import (
 	"xzdp/internal/rewards"
 	"xzdp/internal/social"
 	"xzdp/internal/trade"
+	"xzdp/internal/verification"
 )
 
 type frameworkLog struct{}
@@ -124,6 +125,7 @@ func run(ctx context.Context) error {
 		}
 		c.Data(200, "text/plain; version=0.0.4", []byte("# TYPE xzdp_build_info gauge\nxzdp_build_info 1\n"+shopCache.Metrics()+metrics))
 	})
+	verification.Service{DB: pool, Redis: redis.RedisClient, Prefix: "xzdp:" + cfg.Env + ":verification:", SMTP: verification.SMTPConfig()}.Register(h)
 	discovery.Register(h, pool)
 	booking.Register(h, pool)
 	rewards.Register(h, pool, redis.RedisClient)

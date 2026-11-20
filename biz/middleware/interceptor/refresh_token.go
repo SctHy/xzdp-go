@@ -15,7 +15,7 @@ import (
 
 func publicRoute(method, path string) bool {
 	if method == "POST" {
-		return path == "/user/login" || path == "/user/code"
+		return path == "/user/login" || path == "/user/code" || path == "/user/email/code" || path == "/user/email/login"
 	}
 	if method != "GET" {
 		return false
