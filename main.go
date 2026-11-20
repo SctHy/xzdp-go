@@ -87,6 +87,7 @@ func run(ctx context.Context) error {
 	socialStore := social.Store{DB: pool, Redis: redis.RedisClient, Prefix: "xzdp:" + cfg.Env + ":social:"}
 	visitors := interceptor.NewVisitors(redis.RedisClient)
 	var cacheGroup errgroup.Group
+	cacheGroup.Go(func() error { return socialStore.RunRank(workers) })
 	cacheGroup.Go(func() error { return geo.Run(workers) })
 	cacheGroup.Go(func() error { return visitors.Run(workers) })
 	cacheGroup.Go(func() error { return socialStore.Run(workers) })

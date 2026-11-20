@@ -2,7 +2,10 @@ package blog
 
 import (
 	"context"
+	"github.com/stretchr/testify/require"
 	"testing"
+	"time"
+	"xzdp/conf"
 
 	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/alicebob/miniredis/v2"
@@ -46,4 +49,26 @@ func TestGetHotBlogService_Run(t *testing.T) {
 	if err = mock.ExpectationsWereMet(); err != nil {
 		t.Fatal(err)
 	}
+}
+
+func TestHotPagesHydrateSnapshotInRankOrder(t *testing.T) {
+	ctx := context.Background()
+	client := goredis.NewClient(&goredis.Options{Addr: miniredis.RunT(t).Addr()})
+	defer client.Close()
+	redis.RedisClient = client
+	db, m, err := sqlmock.New()
+	require.NoError(t, err)
+	defer db.Close()
+	mysqlDal.DB, err = gorm.Open(mysql.New(mysql.Config{Conn: db, SkipInitializeWithVersion: true}), &gorm.Config{})
+	require.NoError(t, err)
+	require.NoError(t, client.Set(ctx, "xzdp:"+conf.GetEnv()+":social:hot-rank", "[9,3]", time.Minute).Err())
+	svc := NewGetHotBlogService(ctx, app.NewContext(1))
+	for i := 0; i < 10; i++ {
+		m.ExpectQuery("SELECT .* WHERE b.id IN").WithArgs(9, 3).WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(3).AddRow(9))
+		rows, err := svc.Run(&blog.BlogReq{Current: 1})
+		require.NoError(t, err)
+		require.Len(t, *rows, 2)
+		require.EqualValues(t, 9, (*rows)[0].ID)
+	}
+	require.NoError(t, m.ExpectationsWereMet())
 }
