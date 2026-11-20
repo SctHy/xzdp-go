@@ -22,6 +22,8 @@ require (
 	github.com/DATA-DOG/go-sqlmock v1.5.2 // indirect
 	github.com/alicebob/gopher-json v0.0.0-20200520072559-a9ecdc9d1d3a // indirect
 	github.com/alicebob/miniredis/v2 v2.33.0 // indirect
+	github.com/bits-and-blooms/bitset v1.10.0 // indirect
+	github.com/bits-and-blooms/bloom/v3 v3.7.0
 	github.com/bytedance/go-tagexpr/v2 v2.9.2 // indirect
 	github.com/bytedance/gopkg v0.0.0-20240507064146-197ded923ae3 // indirect
 	github.com/bytedance/sonic v1.11.9 // indirect
@@ -30,6 +32,7 @@ require (
 	github.com/cloudwego/base64x v0.1.4 // indirect
 	github.com/cloudwego/iasm v0.2.0 // indirect
 	github.com/cloudwego/netpoll v0.6.2 // indirect
+	github.com/coocood/freecache v1.2.4
 	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/dgryski/go-rendezvous v0.0.0-20200823014737-9f7001d12a5f // indirect
 	github.com/fsnotify/fsnotify v1.5.4 // indirect
@@ -54,7 +57,7 @@ require (
 	github.com/yuin/gopher-lua v1.1.1 // indirect
 	golang.org/x/arch v0.0.0-20210923205945-b76863e36670 // indirect
 	golang.org/x/mod v0.22.0 // indirect
-	golang.org/x/sync v0.10.0 // indirect
+	golang.org/x/sync v0.10.0
 	golang.org/x/sys v0.29.0 // indirect
 	golang.org/x/text v0.14.0 // indirect
 	golang.org/x/tools v0.29.0 // indirect

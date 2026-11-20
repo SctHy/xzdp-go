@@ -29,3 +29,10 @@ cors:
       allow-methods: GET, POST
       expose-headers: Content-Length, Access-Control-Allow-Origin, Access-Control-Allow-Headers, Content-Type
       allow-credentials: true # bool
+shop_cache:
+  memory_mib: 16
+  local_seconds: 30
+  redis_seconds: 600
+  refresh_seconds: 60
+  hot_ids: [1]
+  trust_bloom: false

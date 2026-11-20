@@ -166,3 +166,15 @@ func LoadShopListToCache(ctx context.Context) error {
 	}
 	return nil
 }
+
+func ShopIDs(ctx context.Context) ([]int64, error) {
+	var ids []int64
+	err := DB.WithContext(ctx).Model(&shop.Shop{}).Pluck("id", &ids).Error
+	return ids, err
+}
+
+func ShopExists(ctx context.Context, id int64) (bool, error) {
+	var exists bool
+	err := DB.WithContext(ctx).Raw("SELECT EXISTS(SELECT 1 FROM tb_shop WHERE id = ?)", id).Scan(&exists).Error
+	return exists, err
+}

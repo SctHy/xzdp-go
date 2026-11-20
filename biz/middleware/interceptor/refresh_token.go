@@ -36,7 +36,15 @@ func CheckToken(ctx context.Context, c *app.RequestContext) {
 	if token != "" {
 		var u user.UserDTO
 		key := constants.LOGIN_USER_KEY + token
-		if err := redis.RedisClient.HGetAll(ctx, key).Scan(&u); err != nil {
+		sessionCtx, cancel := context.WithTimeout(ctx, 300*time.Millisecond)
+		err := redis.RedisClient.HGetAll(sessionCtx, key).Scan(&u)
+		cancel()
+		if err != nil {
+			// Shop reads are viewer-independent and may fall back to MySQL.
+			if string(c.Method()) == "GET" && (path == "/shop/:id" || path == "/shop-type/list") {
+				c.Next(ctx)
+				return
+			}
 			utils.SendErrResponse(ctx, c, 503, errors.New("session store unavailable"))
 			c.Abort()
 			return

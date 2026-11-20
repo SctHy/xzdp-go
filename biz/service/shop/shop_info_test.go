@@ -4,6 +4,7 @@ import (
 	"context"
 	"regexp"
 	"testing"
+	"xzdp/conf"
 
 	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/alicebob/miniredis/v2"
@@ -47,6 +48,7 @@ func TestShopInfoService_Run(t *testing.T) {
 		t.Fatal(err)
 	}
 	mysqlDal.DB = gormDB
+	ConfigureCache(conf.GetConf())
 
 	var shopId int64 = 1
 	ctx := context.Background()

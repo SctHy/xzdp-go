@@ -4,6 +4,7 @@ import (
 	"context"
 	"regexp"
 	"testing"
+	"xzdp/conf"
 
 	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/alicebob/miniredis/v2"
@@ -30,8 +31,9 @@ func TestShopListService_Run(t *testing.T) {
 		SkipInitializeWithVersion: true,
 	}), &gorm.Config{})
 	mysqlDal.DB = gormDB
+	ConfigureCache(conf.GetConf())
 
-	mock.ExpectQuery(regexp.QuoteMeta("SELECT * FROM `shop_types`")).WillReturnRows(sqlmock.NewRows([]string{"id"}))
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT * FROM `shop_types`")).WillReturnRows(sqlmock.NewRows([]string{"id", "name"}).AddRow(1, "美食"))
 
 	ctx := context.Background()
 	c := app.NewContext(1)
@@ -41,8 +43,8 @@ func TestShopListService_Run(t *testing.T) {
 	resp, err := s.Run(req)
 
 	if err != nil {
-		t.Log(err)
+		t.Fatal(err)
 	} else {
-		assert.NotEqual(t, nil, resp)
+		assert.DeepEqual(t, "美食", (*resp)[0].Name)
 	}
 }

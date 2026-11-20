@@ -3,6 +3,8 @@ package shop
 import (
 	"bytes"
 	"testing"
+	shopservice "xzdp/biz/service/shop"
+	"xzdp/conf"
 
 	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/alicebob/miniredis/v2"
@@ -27,6 +29,7 @@ func setup() {
 		SkipInitializeWithVersion: true,
 	}), &gorm.Config{})
 	mysqlDal.DB = gormDB
+	shopservice.ConfigureCache(conf.GetConf())
 
 	mock.ExpectQuery(".*").WillReturnRows(sqlmock.NewRows([]string{"id"}))
 }

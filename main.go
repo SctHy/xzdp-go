@@ -17,10 +17,12 @@ import (
 	"github.com/cloudwego/hertz/pkg/app"
 	"github.com/cloudwego/hertz/pkg/app/server"
 	"github.com/cloudwego/hertz/pkg/common/hlog"
+	"golang.org/x/sync/errgroup"
 	"xzdp/biz/dal/mysql"
 	"xzdp/biz/dal/redis"
 	"xzdp/biz/handler/health"
 	"xzdp/biz/middleware/interceptor"
+	shopservice "xzdp/biz/service/shop"
 	"xzdp/conf"
 )
 
@@ -63,6 +65,12 @@ func run(ctx context.Context) error {
 		return fmt.Errorf("open Redis: %w", err)
 	}
 	defer redis.RedisClient.Close()
+	shopCache := shopservice.ConfigureCache(cfg)
+	workers, stopWorkers := context.WithCancel(ctx)
+	var cacheGroup errgroup.Group
+	cacheGroup.Go(func() error { shopCache.Subscribe(workers); return nil })
+	cacheGroup.Go(func() error { shopCache.Warm(workers); return nil })
+	defer func() { stopWorkers(); cacheGroup.Wait() }()
 	checks := &health.Checks{MySQL: pool.PingContext, Redis: func(ctx context.Context) error { return redis.RedisClient.Ping(ctx).Err() }}
 	h := server.New(server.WithHostPorts(cfg.Hertz.Address))
 	streams, endStreams := context.WithCancel(context.Background())
@@ -81,7 +89,7 @@ func run(ctx context.Context) error {
 	h.GET("/health/live", health.Live)
 	h.GET("/health/ready", checks.Ready)
 	h.GET("/metrics", func(_ context.Context, c *app.RequestContext) {
-		c.Data(200, "text/plain; version=0.0.4", []byte("# TYPE xzdp_build_info gauge\nxzdp_build_info 1\n"))
+		c.Data(200, "text/plain; version=0.0.4", []byte("# TYPE xzdp_build_info gauge\nxzdp_build_info 1\n"+shopCache.Metrics()))
 	})
 	register(h)
 	if cfg.Hertz.EnablePprof {

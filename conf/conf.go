@@ -19,12 +19,26 @@ var (
 )
 
 type Config struct {
-	Env string
+	Env       string
+	ShopCache ShopCache `yaml:"shop_cache"`
 
 	Hertz Hertz `yaml:"hertz"`
 	MySQL MySQL `yaml:"mysql"`
 	Redis Redis `yaml:"redis"`
 	Cors  Cors  `yaml:"cors"`
+}
+
+type ShopCache struct {
+	MemoryMiB      int     `yaml:"memory_mib"`
+	LocalSeconds   int     `yaml:"local_seconds"`
+	RedisSeconds   int     `yaml:"redis_seconds"`
+	RefreshSeconds int     `yaml:"refresh_seconds"`
+	HotIDs         []int64 `yaml:"hot_ids"`
+	TrustBloom     bool    `yaml:"trust_bloom"`
+}
+
+func DefaultShopCache() ShopCache {
+	return ShopCache{MemoryMiB: 16, LocalSeconds: 30, RedisSeconds: 600, RefreshSeconds: 60, HotIDs: []int64{1}}
 }
 
 type MySQL struct {
@@ -75,7 +89,7 @@ func Current() (*Config, error) {
 }
 
 func Load() (*Config, error) {
-	c := Config{Env: GetEnv(), Hertz: Hertz{Address: ":8081", LogLevel: "info"}, MySQL: MySQL{DSN: "xzdp:xzdp-local@tcp(127.0.0.1:3306)/xzdp?parseTime=true&timeout=3s"}, Redis: Redis{Address: "127.0.0.1:6379"}, Cors: Cors{Mode: "allow-all"}}
+	c := Config{Env: GetEnv(), ShopCache: DefaultShopCache(), Hertz: Hertz{Address: ":8081", LogLevel: "info"}, MySQL: MySQL{DSN: "xzdp:xzdp-local@tcp(127.0.0.1:3306)/xzdp?parseTime=true&timeout=3s"}, Redis: Redis{Address: "127.0.0.1:6379"}, Cors: Cors{Mode: "allow-all"}}
 	path, explicit := os.LookupEnv("XZDP_CONFIG")
 	if !explicit {
 		path = filepath.Join("conf", c.Env, "conf.yaml")
@@ -101,6 +115,9 @@ func Load() (*Config, error) {
 	}
 	if c.Hertz.Address == "" || c.Redis.Address == "" || c.MySQL.DSN == "" {
 		return nil, fmt.Errorf("empty HTTP, MySQL or Redis configuration")
+	}
+	if c.ShopCache.MemoryMiB < 1 || c.ShopCache.MemoryMiB > 64 || c.ShopCache.LocalSeconds < 1 || c.ShopCache.RedisSeconds < 1 || c.ShopCache.RefreshSeconds < 1 {
+		return nil, fmt.Errorf("invalid shop_cache capacity or TTL")
 	}
 	return &c, validator.Validate(&c)
 }
