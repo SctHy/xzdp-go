@@ -19,9 +19,10 @@ var (
 )
 
 type Config struct {
-	KafkaBroker string `yaml:"kafka_broker"`
-	Env         string
-	ShopCache   ShopCache `yaml:"shop_cache"`
+	FeedThreshold int64  `yaml:"feed_threshold"`
+	KafkaBroker   string `yaml:"kafka_broker"`
+	Env           string
+	ShopCache     ShopCache `yaml:"shop_cache"`
 
 	Hertz Hertz `yaml:"hertz"`
 	MySQL MySQL `yaml:"mysql"`
@@ -90,7 +91,7 @@ func Current() (*Config, error) {
 }
 
 func Load() (*Config, error) {
-	c := Config{Env: GetEnv(), KafkaBroker: "127.0.0.1:9092", ShopCache: DefaultShopCache(), Hertz: Hertz{Address: ":8081", LogLevel: "info"}, MySQL: MySQL{DSN: "xzdp:xzdp-local@tcp(127.0.0.1:3306)/xzdp?parseTime=true&timeout=3s"}, Redis: Redis{Address: "127.0.0.1:6379"}, Cors: Cors{Mode: "allow-all"}}
+	c := Config{FeedThreshold: 10000, Env: GetEnv(), KafkaBroker: "127.0.0.1:9092", ShopCache: DefaultShopCache(), Hertz: Hertz{Address: ":8081", LogLevel: "info"}, MySQL: MySQL{DSN: "xzdp:xzdp-local@tcp(127.0.0.1:3306)/xzdp?parseTime=true&timeout=3s"}, Redis: Redis{Address: "127.0.0.1:6379"}, Cors: Cors{Mode: "allow-all"}}
 	path, explicit := os.LookupEnv("XZDP_CONFIG")
 	if !explicit {
 		path = filepath.Join("conf", c.Env, "conf.yaml")

@@ -26,3 +26,9 @@ Redis 前缀为 xzdp:<env>:trade:。v:<id> 保存库存与时间窗口，:buyers
 POST /voucher-order/cancel/:id 取消本人未支付订单；POST /voucher-order/wait/:id 对售罄的活动候补；POST /voucher-order/subscribe/:id 订阅未开始活动；GET /notifications 返回本人最近 50 条通知。订单状态只在 SQL 中使用条件更新。定时任务扫描超过 15 分钟的未支付订单，复用取消事务。
 数据库迁移 003 增加库存释放事件、订阅与站内通知。释放任务在 Redis 利用订单号去重，将库存交给最早的候补者或退回库存。候补订单复用同一条 Kafka 消费链。订阅提醒在开抢前五分钟写入通知表，再发送到已有 SSE Stream。
 参考 [Java Plus 延时通知](https://github.com/java-up-up/hmdp-plus/tree/HEAD/hmdp-core-service/src/main/java/org/javaup/delay/consumer) 和 [go-zero 订单生命周期](https://github.com/me-cs/dianping-gozero/tree/main/rpc/order/internal/logic)。
+
+## 点赞与关注流
+
+`internal/social/likes.go` 保留既有点赞用户 ZSet。Lua 同步修改成员关系、计数及脏集合；四个 worker 每秒最多领取 128 个热点笔记，以版本条件写回绝对计数。MySQL 写失败时保留脏记录，同版本成功后才能清理。笔记详情优先显示 Redis 中的即时计数。Redis 使用 AOF；MySQL 中的计数无法单独恢复点赞成员关系。
+
+`internal/social/feed.go` 在发帖事务内记录投递方式。少于一万粉丝的作者向收件箱推送，同一帖子重投使用相同 ZSet member。达到阈值的作者按读请求合并。发布时固定模式，作者之后跨越阈值时旧帖依然可见。迁移见 `004_social.sql`；原有收件箱与分页字段继续使用。缓存键为 `xzdp:<env>:social:like:<blog>` 和 `xzdp:<env>:social:dirty`。参考 Java 版点赞与收件箱的 ZSet 用法，以及 go-zero 版对同分值时间游标的处理。[BlogServiceImpl](https://github.com/java-up-up/hmdp-plus/blob/HEAD/hmdp-core-service/src/main/java/org/javaup/service/impl/BlogServiceImpl.java) · [QueryBlogsOfFollow](https://github.com/me-cs/dianping-gozero/blob/HEAD/rpc/blog/internal/logic/queryblogsoffollowlogic.go)

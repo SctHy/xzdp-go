@@ -51,6 +51,15 @@ func Apply(ctx context.Context, db *sql.DB) error {
 			if stmt == "" {
 				continue
 			}
+			if strings.HasPrefix(stmt, "ALTER TABLE tb_blog ADD COLUMN like_version") {
+				var present bool
+				if err = conn.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name='tb_blog' AND column_name='like_version')").Scan(&present); err != nil {
+					return err
+				}
+				if present {
+					continue
+				}
+			}
 			if strings.HasPrefix(stmt, "ALTER TABLE tb_voucher_order ADD UNIQUE") {
 				var present bool
 				if err = conn.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM information_schema.statistics WHERE table_schema=DATABASE() AND table_name='tb_voucher_order' AND index_name='uq_order_user_voucher')").Scan(&present); err != nil {

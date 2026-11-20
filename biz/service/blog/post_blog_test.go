@@ -39,6 +39,7 @@ func TestPostBlogService_Run(t *testing.T) {
 
 	mock.ExpectBegin()
 	mock.ExpectExec("INSERT INTO `tb_blog`").WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectExec("INSERT INTO feed_publication").WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectCommit()
 	// Use broad match for follow query
 	mock.ExpectQuery(".*").WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(1))

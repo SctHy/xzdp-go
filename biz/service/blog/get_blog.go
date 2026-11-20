@@ -33,6 +33,9 @@ func (h *GetBlogService) Run(req *string) (resp *blog.Blog, err error) {
 	}
 	resp.Icon = user.Icon
 	resp.NickName = user.NickName
+	if store, err := socialStore(); err == nil {
+		resp.Liked = store.Count(h.Context, resp.ID, resp.Liked)
+	}
 	resp.IsLiked = false
 	// 获取点赞状态
 	viewer := utils.GetUser(h.Context)

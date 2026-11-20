@@ -31,7 +31,7 @@ def sessions(users):
     return tokens
 
 
-async def request(path, auth, sale_token="", gate=None):
+async def request(path, auth, sale_token="", gate=None, method="POST"):
     for attempt in range(6):
         try:
             reader, writer = await asyncio.open_connection("127.0.0.1", PORT)
@@ -44,7 +44,7 @@ async def request(path, auth, sale_token="", gate=None):
         if gate:
             await gate()
         start = time.perf_counter()
-        writer.write((f"POST {path} HTTP/1.0\r\nHost: localhost\r\nAuthorization: {auth}\r\n"
+        writer.write((f"{method} {path} HTTP/1.0\r\nHost: localhost\r\nAuthorization: {auth}\r\n"
                       f"X-Seckill-Token: {sale_token}\r\nContent-Length: 0\r\n\r\n").encode())
         await writer.drain()
         head, body = (await asyncio.wait_for(reader.read(), 20)).split(b"\r\n\r\n", 1)

@@ -40,3 +40,4 @@ conf/online/conf.yaml
 .hz
 resources/nginx-1.18.0
 upload/
+__pycache__/

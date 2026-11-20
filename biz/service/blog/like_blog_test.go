@@ -31,12 +31,7 @@ func TestLikeBlogService_Run(t *testing.T) {
 	}), &gorm.Config{})
 	mysqlDal.DB = gormDB
 
-	mock.ExpectQuery(".*").WillReturnRows(sqlmock.NewRows([]string{"id", "user_id"}).AddRow(1, 1))
-	// Expect Update if like
-	mock.ExpectBegin()
-	mock.ExpectExec(".*").WillReturnResult(sqlmock.NewResult(1, 1))
-	mock.ExpectCommit()
-
+	mock.ExpectQuery(".*").WillReturnRows(sqlmock.NewRows([]string{"liked", "like_version", "user_id"}).AddRow(0, 0, 1))
 	ctx := context.Background()
 	c := app.NewContext(1)
 
@@ -51,7 +46,7 @@ func TestLikeBlogService_Run(t *testing.T) {
 	resp, err := s.Run(req)
 
 	if err != nil {
-		t.Log(err)
+		t.Fatal(err)
 	} else {
 		assert.NotEqual(t, nil, resp)
 	}

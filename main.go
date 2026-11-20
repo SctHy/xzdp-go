@@ -25,6 +25,7 @@ import (
 	shopservice "xzdp/biz/service/shop"
 	"xzdp/conf"
 	"xzdp/internal/migrate"
+	"xzdp/internal/social"
 	"xzdp/internal/trade"
 )
 
@@ -76,7 +77,9 @@ func run(ctx context.Context) error {
 	}
 	shopCache := shopservice.ConfigureCache(cfg)
 	workers, stopWorkers := context.WithCancel(ctx)
+	socialStore := social.Store{DB: pool, Redis: redis.RedisClient, Prefix: "xzdp:" + cfg.Env + ":social:"}
 	var cacheGroup errgroup.Group
+	cacheGroup.Go(func() error { return socialStore.Run(workers) })
 	cacheGroup.Go(func() error { return sale.Maintain(workers) })
 	cacheGroup.Go(func() error { return sale.Run(workers, cfg.KafkaBroker, cfg.Env) })
 	cacheGroup.Go(func() error { shopCache.Subscribe(workers); return nil })
