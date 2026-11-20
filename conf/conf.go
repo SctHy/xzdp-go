@@ -19,6 +19,7 @@ var (
 )
 
 type Config struct {
+	MockPayment   bool   `yaml:"mock_payment"`
 	FeedThreshold int64  `yaml:"feed_threshold"`
 	KafkaBroker   string `yaml:"kafka_broker"`
 	Env           string
@@ -111,6 +112,12 @@ func Load() (*Config, error) {
 	}
 	if v, ok := os.LookupEnv("XZDP_ACCESS_LOG"); ok {
 		c.Hertz.EnableAccessLog, err = strconv.ParseBool(v)
+		if err != nil {
+			return nil, err
+		}
+	}
+	if v, ok := os.LookupEnv("XZDP_MOCK_PAYMENT"); ok {
+		c.MockPayment, err = strconv.ParseBool(v)
 		if err != nil {
 			return nil, err
 		}

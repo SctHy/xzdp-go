@@ -120,7 +120,7 @@ func run(ctx context.Context) error {
 		}
 		c.Data(200, "text/plain; version=0.0.4", []byte("# TYPE xzdp_build_info gauge\nxzdp_build_info 1\n"+shopCache.Metrics()+metrics))
 	})
-	sale.Register(h)
+	sale.Register(h, cfg.MockPayment)
 	register(h)
 	if cfg.Hertz.EnablePprof {
 		listener, err := net.Listen("tcp", "127.0.0.1:6060")

@@ -12,7 +12,7 @@ bash script/smoke-phase0.sh
 
 API 在 `127.0.0.1:8081`，Prometheus 在 `:9090`，Grafana 在 `:3000`。六个服务均设置容器内存上限。项目保留 Hertz 单体，按商铺缓存、交易、社交和观测划分职责。秒杀受理后可通过订单号跟踪排队与落库。
 
-[基础设施与 API](docs/phase-0-audit.md) · [多级缓存](docs/phase-1-cache.md) · [订单与社交设计](docs/trade.md) · [架构演进、压测对照与火焰图](docs/performance.md)
+[基础设施与 API](docs/phase-0-audit.md) · [多级缓存](docs/phase-1-cache.md) · [订单与社交设计](docs/trade.md) · [模拟支付与门店核销](docs/payment-contract.md) · [附近商铺索引](docs/nearby.md) · [备份恢复演练](docs/recovery.md) · [架构演进、压测对照与火焰图](docs/performance.md)
 
 ## 介绍
 

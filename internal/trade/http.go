@@ -12,7 +12,21 @@ import (
 	"xzdp/biz/utils"
 )
 
-func (s Sale) Register(h *server.Hertz) {
+func (s Sale) Register(h *server.Hertz, mockPayment bool) {
+	if mockPayment {
+		h.POST("/voucher-order/pay/:id", s.action(func(ctx context.Context, id, user int64, _ *app.RequestContext) (any, error) {
+			return s.Pay(ctx, id, user)
+		}))
+		h.POST("/voucher-order/redeem/:id", s.action(func(ctx context.Context, id, user int64, c *app.RequestContext) (any, error) {
+			var input struct {
+				Code string `json:"code"`
+			}
+			if err := c.BindJSON(&input); err != nil {
+				return nil, errors.New("请提供核销码")
+			}
+			return "used", s.Redeem(ctx, id, user, input.Code)
+		}))
+	}
 	h.GET("/notifications", func(ctx context.Context, c *app.RequestContext) {
 		items, err := s.Inbox(ctx, utils.GetUser(ctx).ID)
 		if err != nil {

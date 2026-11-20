@@ -159,7 +159,7 @@ func (s Sale) Status(ctx context.Context, id string, u int64) (string, error) {
 	var status int
 	err := s.DB.QueryRowContext(ctx, "SELECT status FROM tb_voucher_order WHERE id=? AND user_id=?", id, u).Scan(&status)
 	if err == nil {
-		return map[int]string{1: "unpaid", 2: "paid", 3: "used", 4: "cancelled", 5: "refunding", 6: "refunded"}[status], nil
+		return map[int]string{unpaid: "unpaid", paid: "paid", used: "used", cancelled: "cancelled", 5: "refunding", 6: "refunded"}[status], nil
 	}
 	if !errors.Is(err, sql.ErrNoRows) {
 		return "", err
