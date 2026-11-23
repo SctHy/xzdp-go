@@ -110,11 +110,11 @@ func search(endpoint, path string) ([]discovery.Hit, error) {
 	return reply.Data, nil
 }
 func path(i int, keyword bool) string {
-	x := 121.39 + float64(i%7)*.002
-	y := 31.19 + float64(i%5)*.003
+	x := 120.149 + float64(i%7)*.0002
+	y := 30.316 + float64(i%5)*.0003
 	base := fmt.Sprintf("?x=%f&y=%f", x, y)
 	if keyword {
-		return base + fmt.Sprintf("&radiusMeters=2600&typeId=2&q=%s&page=%d", url.QueryEscape("咖啡馆"), 1+i%2)
+		return base + fmt.Sprintf("&radiusMeters=2600&typeId=1&q=%s&page=%d", url.QueryEscape("茶餐厅"), 1+i%2)
 	}
 	return base + "&radiusMeters=1000"
 }

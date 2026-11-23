@@ -33,8 +33,13 @@ async def run():
 
     async def order(user):
         token = await act("token", v, user)
-        result, _ = await request(f"/voucher-order/seckill/{v}", user, token["data"])
-        oid = int(result["data"])
+        responses = await asyncio.gather(*(
+            request(f"/voucher-order/seckill/{v}", user, token["data"]) for _ in range(3)
+        ))
+        assert all(body["success"] for body, _ in responses), responses
+        ids = {body["data"] for body, _ in responses}
+        assert len(ids) == 1, ids
+        oid = int(ids.pop())
         poll(lambda: sql(f"SELECT status FROM tb_voucher_order WHERE id={oid}") == "1")
         return oid
 

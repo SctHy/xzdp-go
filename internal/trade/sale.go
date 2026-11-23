@@ -119,7 +119,15 @@ end
 
 var reserve = redis.NewScript(allocateOrder + `
 local now=tonumber(redis.call('TIME')[1])
-if redis.call('GET',KEYS[3])~=ARGV[2] then return {0,'令牌无效'} end
+local credential=redis.call('GET',KEYS[3])
+if credential then
+ local token,id=string.match(credential,'^(%x+):(%d+)$')
+ if token then
+  if token==ARGV[2] then return {1,id} end
+  return {0,'令牌无效'}
+ end
+end
+if credential~=ARGV[2] then return {0,'令牌无效'} end
 local a=redis.call('HMGET',KEYS[1],'start','end','stock')
 if not a[1] or now<tonumber(a[1]) or now>=tonumber(a[2]) then return {0,'活动未开放'} end
 if redis.call('HEXISTS',KEYS[2],ARGV[1])==1 then return {0,'已下单'} end
@@ -127,7 +135,7 @@ if tonumber(a[3])<=0 then return {0,'已售罄'} end
 local id=allocate(KEYS[6])
 redis.call('HINCRBY',KEYS[1],'stock',-1)
 redis.call('HSET',KEYS[2],ARGV[1],id)
-redis.call('DEL',KEYS[3])
+redis.call('SET',KEYS[3],ARGV[2]..':'..id,'EX',900)
 redis.call('HSET',KEYS[4],id,ARGV[3])
 redis.call('ZADD',KEYS[5],now,id)
 return {1,id}`)
@@ -156,24 +164,27 @@ func (s Sale) pending(ctx context.Context, id string) (Order, error) {
 	return Order{id, v, u}, err
 }
 func (s Sale) Status(ctx context.Context, id string, u int64) (string, error) {
-	var status int
-	err := s.DB.QueryRowContext(ctx, "SELECT status FROM tb_voucher_order WHERE id=$1 AND user_id=$2", id, u).Scan(&status)
-	if err == nil {
-		return map[int]string{unpaid: "unpaid", paid: "paid", used: "used", cancelled: "cancelled", 5: "refunding", 6: "refunded"}[status], nil
-	}
-	if !errors.Is(err, sql.ErrNoRows) {
+	// Read pending before SQL: the worker commits the order before clearing pending.
+	o, pendingErr := s.pending(ctx, id)
+	var status sql.NullInt64
+	var dead bool
+	err := s.DB.QueryRowContext(ctx, `SELECT
+		(SELECT status FROM tb_voucher_order WHERE id=$1 AND user_id=$2),
+		EXISTS(SELECT 1 FROM trade_dead_letter WHERE order_id=$1 AND user_id=$2)`, id, u).Scan(&status, &dead)
+	if err != nil {
 		return "", err
 	}
-	var failed bool
-	if err = s.DB.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM trade_dead_letter WHERE order_id=$1 AND user_id=$2)", id, u).Scan(&failed); err != nil {
-		return "", err
+	if status.Valid {
+		return map[int64]string{unpaid: "unpaid", paid: "paid", used: "used", cancelled: "cancelled", 5: "refunding", 6: "refunded"}[status.Int64], nil
 	}
-	if failed {
-		return "failed", nil
+	if pendingErr != nil && !errors.Is(pendingErr, redis.Nil) {
+		return "", pendingErr
 	}
-	o, err := s.pending(ctx, id)
-	if err == nil && o.User == u {
+	if pendingErr == nil && o.User == u {
 		return "queued", nil
+	}
+	if dead {
+		return "failed", nil
 	}
 	return "", sql.ErrNoRows
 }

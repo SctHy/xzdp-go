@@ -28,10 +28,7 @@ func TestPostgresOptimizations(t *testing.T) {
 	t.Cleanup(func() { db.Close() })
 	db.SetMaxOpenConns(8)
 	db.SetMaxIdleConns(8)
-	require.NoError(t, schema.Apply(ctx, db))
-	exec(t, db, `INSERT INTO tb_shop(name,type_id,images,address,x,y,sold,comments,score)
- SELECT (CASE WHEN n%3=0 THEN '街角咖啡馆' ELSE '社区食堂' END)||n,1+n%7,'','fixture',
- 121.4+(mod(n*7919,24001)-12000)/48000.0,31.2+(mod(n*6151,24001)-12000)/48000.0,0,0,45 FROM generate_series(1,24000)n`)
+	require.NoError(t, schema.Install(ctx, db, true))
 	exec(t, db, "INSERT INTO tb_seckill_voucher(voucher_id,stock) VALUES(1,0)")
 	exec(t, db, "ANALYZE")
 	urls := []string{launch(t, db, "pg"), launch(t, db, "production")}
@@ -105,9 +102,9 @@ func TestPostgresOptimizations(t *testing.T) {
 		}
 	}
 	// Record representative plans after warming the fixture, outside timing.
-	const origin = "ST_SetSRID(ST_MakePoint(121.4,31.2),4326)::geography"
+	const origin = "ST_SetSRID(ST_MakePoint(120.149,30.316),4326)::geography"
 	plan(t, target{name: "pg", db: db}, "knn", "SELECT * FROM (SELECT id,location <-> "+origin+" AS distance FROM tb_shop ORDER BY distance FETCH FIRST 10 ROWS WITH TIES) n WHERE distance<=1000 ORDER BY distance,id LIMIT 10")
-	plan(t, target{name: "pg", db: db}, "category", "SELECT id,(location <-> "+origin+")*0.9999964257755911 AS meters FROM tb_shop WHERE type_id=2 AND strpos(lower(name),'咖啡馆')>0 AND ST_DWithin(location,"+origin+",2600,false) ORDER BY meters,id LIMIT 10")
+	plan(t, target{name: "pg", db: db}, "category", "SELECT id,(location <-> "+origin+")*0.9999964257755911 AS meters FROM tb_shop WHERE type_id=1 AND strpos(lower(name),'茶餐厅')>0 AND ST_DWithin(location,"+origin+",2600,false) ORDER BY meters,id LIMIT 10")
 	// Inspect the prepared statement actually used by the HTTP route, including
 	// whether PostgreSQL selected a generic plan for the parameterized radius.
 	conn, err := db.Conn(ctx)
@@ -117,7 +114,7 @@ func TestPostgresOptimizations(t *testing.T) {
 	err = conn.QueryRowContext(ctx, "SELECT name,generic_plans,custom_plans FROM pg_prepared_statements WHERE statement LIKE 'SELECT id,name,type_id,(location <->%' AND statement LIKE '%strpos%' LIMIT 1").Scan(&prepared, &generic, &custom)
 	if err == nil {
 		t.Logf("keyword prepared plan generic=%d custom=%d", generic, custom)
-		rows, e := conn.QueryContext(ctx, "EXPLAIN (ANALYZE,BUFFERS) EXECUTE "+pq.QuoteIdentifier(prepared)+"(121.4,31.2,0.9999964257755911,2600,0,2,'咖啡馆')")
+		rows, e := conn.QueryContext(ctx, "EXPLAIN (ANALYZE,BUFFERS) EXECUTE "+pq.QuoteIdentifier(prepared)+"(120.149,30.316,0.9999964257755911,2600,0,1,'茶餐厅')")
 		require.NoError(t, e)
 		for rows.Next() {
 			var line string

@@ -124,7 +124,7 @@ func TestPostgresShadow(t *testing.T) {
 			want[k][i], err = search(myURL, u)
 			require.NoError(t, err)
 			if k == 0 {
-				require.Len(t, want[k][i], 10)
+				require.NotEmpty(t, want[k][i])
 			} else if i%2 == 0 {
 				require.NotEmpty(t, want[k][i])
 			}
@@ -142,7 +142,7 @@ func TestPostgresShadow(t *testing.T) {
 	}
 	rank, e := ids(ctx, my, rankSQL)
 	require.NoError(t, e)
-	require.Len(t, rank, 100)
+	require.Len(t, rank, 5) // Four seed notes plus the NULL-rating test case.
 	for stage := 0; stage < 2; stage++ {
 		targets := []target{{"mysql", my, myURL}, {"pg", pg, pgURL}}
 		if stage == 1 {
@@ -178,10 +178,10 @@ func TestPostgresShadow(t *testing.T) {
 		for _, db := range targets {
 			plan(t, db, "rank", db.ranking())
 			if db.name == "pg" {
-				plan(t, db, "near", pgNear, 121.4, 31.2, 0, "", 1000., 0, ratio)
+				plan(t, db, "near", pgNear, 120.149, 30.316, 0, "", 1000., 0, ratio)
 			} else if stage == 1 {
-				west, south, east, north := bounds(discovery.Query{X: 121.4, Y: 31.2, Radius: 1000})
-				plan(t, db, "near", myBound, 121.4, 31.2, 0, 0, west, south, east, north, "", 1000., 0)
+				west, south, east, north := bounds(discovery.Query{X: 120.149, Y: 30.316, Radius: 1000})
+				plan(t, db, "near", myBound, 120.149, 30.316, 0, 0, west, south, east, north, "", 1000., 0)
 			}
 		}
 	}
@@ -241,8 +241,8 @@ func fetchPage(ctx context.Context, db *sql.DB, query string, ids []any) error {
 }
 
 func detailQuery(which target, rank []int64) (string, []any) {
-	pageArgs := make([]any, 10)
-	marks := make([]string, 10)
+	pageArgs := make([]any, min(10, len(rank)))
+	marks := make([]string, len(pageArgs))
 	for i := range marks {
 		pageArgs[i] = rank[i]
 		marks[i] = "?"

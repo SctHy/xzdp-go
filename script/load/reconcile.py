@@ -15,7 +15,9 @@ async def run():
     token, _ = await request(f"/voucher-order/token/{voucher}", user)
     assert token["success"], token
     prefix = "xzdp:" + os.getenv("GO_ENV", "test") + ":trade:"
-    sql(f"""INSERT INTO trade_dead_letter(order_id,voucher_id,user_id,reason)
+    # Hold reconciliation in its manual-review branch until the pending state is observed.
+    sql(f"""UPDATE tb_seckill_voucher SET stock=0 WHERE voucher_id={voucher};
+            INSERT INTO trade_dead_letter(order_id,voucher_id,user_id,reason)
             VALUES({order},{voucher},{voucher},'integration fixture')""")
     compose(
         "redis",
@@ -27,6 +29,10 @@ HSET {prefix}pending {order} {voucher}:{voucher}
 EXEC
 """,
     )
+
+    status, _ = await request(f"/voucher-order/status/{order}", user, method="GET")
+    assert status["data"] == "queued", status
+    sql(f"UPDATE tb_seckill_voucher SET stock=1 WHERE voucher_id={voucher}")
 
     def settled():
         return (

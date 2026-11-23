@@ -1,13 +1,13 @@
 # 订单契约
 
-HTTP 成功结果在 data 字段，订单号以十进制字符串传输，避免 JavaScript 精度损失。所有接口均使用既有 Authorization 登录凭据。POST /voucher-order/token/:id 获取本人当前活动的 30 秒令牌；POST /voucher-order/seckill/:id 通过 X-Seckill-Token 提交；GET /voucher-order/status/:id 查询本人订单。领令牌和提交采用 Redis 滑动窗口，默认每秒每 IP 2500、每路径 5000、每用户 10。重复领令牌在有效期内返回同一凭据。
+HTTP 成功结果在 data 字段，订单号以十进制字符串传输，避免 JavaScript 精度损失。所有接口均使用既有 Authorization 登录凭据。POST /voucher-order/token/:id 获取本人当前活动的 30 秒令牌；POST /voucher-order/seckill/:id 通过 X-Seckill-Token 提交；GET /voucher-order/status/:id 查询本人订单。领令牌和提交采用 Redis 滑动窗口，默认每秒每 IP 2500、每路径 5000、每用户 10。重复领令牌在有效期内返回同一凭据。预占成功后，原买家可在 15 分钟内向同一活动重发同一令牌，取回原订单号。重试不新增预占，也不延长重试窗口。订单尚有 pending 记录时，状态为 queued，包括进入死信后等待对账的订单；订单落库后返回数据库状态。
 
 ```mermaid
 sequenceDiagram
  participant H as Hertz
  participant R as Redis
  participant K as Kafka
- participant D as MySQL
+ participant D as PostgreSQL
  H->>R: Lua 验令牌、扣库存、记录买家与 pending
  R-->>H: 排队订单号
  R->>K: relay 批量发送
@@ -15,7 +15,7 @@ sequenceDiagram
  D-->>R: 清理 pending
 ```
 
-internal/trade/sale.go 管理资格，worker.go 负责传输和落库，http.go 只处理协议。internal/migrate/sql 中的前向 SQL 同时适用于新卷和旧卷。迁移锁串行执行 DDL；历史重复订单会阻止唯一索引创建，运维人员应先核查历史业务数据。消费失败重试三次后写 Kafka DLQ 与 MySQL 死信表。Redis pending 的生命周期独立于订单业务状态。Redis 必须持久化且禁止驱逐交易键。
+internal/trade/sale.go 管理资格，worker.go 负责传输和落库，http.go 只处理协议。internal/migrate/sql 中的前向 SQL 同时适用于新卷和旧卷。迁移锁串行执行 DDL；历史重复订单会阻止唯一索引创建，运维人员应先核查历史业务数据。消费失败重试三次后写 Kafka DLQ 与 PostgreSQL 死信表。Redis pending 的生命周期独立于订单业务状态。Redis 必须持久化且禁止驱逐交易键。
 
 Redis 前缀为 xzdp:<env>:trade:。v:<id> 保存库存与时间窗口，:buyers 是用户到订单的映射，:token:<user> 是短期凭据；pending 保存未完成的投递记录，relay 按下次投递时间排序。序列键 order-sequence 使用 Redis 64 位整数，从独立编号区间分配；Lua 在资格校验后发号，按字符串返回精确值。部署时保留该键和 AOF。历史订单仍可按原号查询。Kafka 主 topic 为 xzdp-<env>-orders，死信 topic 加 .dlq。
 
@@ -38,7 +38,7 @@ POST /voucher-order/cancel/:id 取消本人未支付订单；POST /voucher-order
 ```mermaid
 sequenceDiagram
     participant W as 超时扫描
-    participant D as MySQL
+    participant D as PostgreSQL
     participant R as Redis
     participant K as Kafka
     W->>D: 事务内关未支付订单、加库存、写释放事件
@@ -56,7 +56,7 @@ sequenceDiagram
     participant H as HTTP
     participant R as Redis
     participant W as 刷盘任务
-    participant D as MySQL
+    participant D as PostgreSQL
     H->>R: 原子切换点赞关系、计数、版本，并标记脏数据
     R-->>H: 当前用户的点赞状态
     W->>R: 读取脏笔记的计数与版本
