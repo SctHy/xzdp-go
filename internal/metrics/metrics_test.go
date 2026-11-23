@@ -19,8 +19,8 @@ func TestRegisteredMetricLabels(t *testing.T) {
 	for _, url := range []string{"/orders/123", "/orders/456"} {
 		ut.PerformRequest(h.Engine, "GET", url, nil)
 	}
-	m.Stream("ack", 2)
-	m.Stream("user_123", 1)
+	m.MQ("produce", 2)
+	m.MQ("user_123", 1)
 	gathered, err := registry.Gather()
 	if err != nil {
 		t.Fatal(err)
@@ -37,8 +37,8 @@ func TestRegisteredMetricLabels(t *testing.T) {
 	if len(labels) != 2 || labels[0].GetName() != "route" || labels[0].GetValue() != "/orders/:id" || labels[1].GetName() != "status" || labels[1].GetValue() != "2xx" {
 		t.Fatal(labels)
 	}
-	counts := map[string]float64{"ack": 2, "reclaim": 0, "dead_letter": 0}
-	for _, m := range families["xzdp_stream_messages_total"].GetMetric() {
+	counts := map[string]float64{"produce": 2, "consume": 0, "reconcile": 0, "dead_letter": 0}
+	for _, m := range families["xzdp_mq_messages_total"].GetMetric() {
 		labels := m.GetLabel()
 		if len(labels) != 1 || labels[0].GetName() != "operation" {
 			t.Fatal(labels)

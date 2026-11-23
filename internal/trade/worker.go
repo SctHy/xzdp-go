@@ -3,24 +3,17 @@ package trade
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/redis/go-redis/v9"
+	"github.com/twmb/franz-go/pkg/kgo"
 )
-
-func (s Sale) InitGroup(ctx context.Context) error {
-	e := s.Redis.XGroupCreateMkStream(ctx, s.Stream(), Group, "0").Err()
-	if e != nil && strings.HasPrefix(e.Error(), "BUSYGROUP") {
-		return nil
-	}
-	return e
-}
 
 // Permanent contradictions require operator inspection. Connectivity and transaction errors stay pending.
 type rejected string
@@ -32,16 +25,16 @@ type event struct {
 	bucket            int
 }
 
-func parse(m redis.XMessage) (event, error) {
+func parse(m map[string]string) (event, error) {
 	var evt event
 	for key, dst := range map[string]*int64{"id": &evt.id, "user": &evt.user, "voucher": &evt.voucher} {
-		v, e := strconv.ParseInt(fmt.Sprint(m.Values[key]), 10, 64)
+		v, e := strconv.ParseInt(m[key], 10, 64)
 		if e != nil || v < 1 {
 			return evt, fmt.Errorf("invalid %s", key)
 		}
 		*dst = v
 	}
-	b, e := strconv.Atoi(fmt.Sprint(m.Values["bucket"]))
+	b, e := strconv.Atoi(m["bucket"])
 	if e != nil || b < 0 || b >= 64 {
 		return evt, errors.New("invalid bucket")
 	}
@@ -86,82 +79,119 @@ func (s Sale) persist(ctx context.Context, v event) error {
 	return tx.Commit()
 }
 
-// A slow original consumer and a claimant can both finish. Publish at most one
-// dead letter, and leave the original pending if writing that letter fails.
 var finishMessage = redis.NewScript(`
-if #redis.call('XPENDING',KEYS[1],ARGV[1],ARGV[2],ARGV[2],1)==0 then return 0 end
-if ARGV[3]~='' then
- redis.call('XADD',KEYS[2],'*','source',ARGV[2],'reason',ARGV[3],'payload',ARGV[4])
-end
-if ARGV[5]~='0' then redis.call('DEL',KEYS[3]) end
-redis.call('XACK',KEYS[1],ARGV[1],ARGV[2])
-redis.call('XDEL',KEYS[1],ARGV[2])
-return 1`)
+if redis.call('HGET',KEYS[2],'payload')~=ARGV[2] then return 0 end
+redis.call('DEL',KEYS[2])
+return redis.call('ZREM',KEYS[1],ARGV[1])`)
 
-func (s Sale) consume(ctx context.Context, msgs []redis.XMessage) (int, error) {
-	for i, m := range msgs {
-		v, bad := parse(m)
-		if bad == nil {
-			if e := s.persist(ctx, v); e != nil {
-				var reason rejected
-				var constraint *pgconn.PgError
-				switch {
-				case errors.As(e, &reason):
-					bad = reason
-				case errors.As(e, &constraint) && constraint.Code == "23505":
-					bad = rejected("conflicting buyer reservation")
-				default:
-					return i, e
-				}
-				if _, e = s.DB.ExecContext(ctx, "INSERT INTO trade_dead_letter(order_id,voucher_id,user_id,reason) VALUES($1,$2,$3,$4) ON CONFLICT DO NOTHING", v.id, v.voucher, v.user, bad.Error()); e != nil {
-					return i, e
-				}
+func (s Sale) consume(ctx context.Context, r *kgo.Record) error {
+	var fields map[string]string
+	var v event
+	bad := json.Unmarshal(r.Value, &fields)
+	if bad == nil {
+		v, bad = parse(fields)
+	}
+	valid := bad == nil
+	if valid {
+		err := s.persist(ctx, v)
+		var permanent rejected
+		var pg *pgconn.PgError
+		switch {
+		case errors.As(err, &permanent):
+			bad = permanent
+		case errors.As(err, &pg) && pg.Code == "23505":
+			bad = rejected("conflicting buyer reservation")
+		case err != nil:
+			return err
+		}
+	}
+	if bad != nil {
+		source := fmt.Sprintf("%s/%d/%d", r.Topic, r.Partition, r.Offset)
+		var id any
+		if valid {
+			id = v.id
+		}
+		_, err := s.DB.ExecContext(ctx, "INSERT INTO trade_dead_letter(order_id,voucher_id,user_id,reason,source,payload) VALUES($1,$2,$3,left($4,255),$5,$6) ON CONFLICT DO NOTHING", id, v.voucher, v.user, bad.Error(), source, r.Value)
+		if err != nil {
+			return err
+		}
+		err = s.Queue.ProduceSync(ctx, &kgo.Record{Topic: s.Queue.Topic + ".dlq", Key: []byte(source), Value: r.Value, Headers: []kgo.RecordHeader{{Key: "reason", Value: []byte(bad.Error())}}}).FirstErr()
+		if err != nil {
+			return err
+		}
+		s.Metrics.MQ("dead_letter", 1)
+	}
+	if valid {
+		id := strconv.FormatInt(v.id, 10)
+		if err := finishMessage.Run(ctx, s.Redis, []string{s.Pending(), s.Prefix + "queued:" + id}, id, r.Value).Err(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// Rewind failed batches before releasing the partitions for a rebalance.
+func (s Sale) Read(ctx context.Context) (n int, err error) {
+	f := s.Queue.PollRecords(ctx, 64)
+	defer s.Queue.AllowRebalance()
+	batch, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
+	defer cancel()
+	records := f.Records()
+	defer func() {
+		if err == nil || len(records) == 0 {
+			return
+		}
+		offsets := map[int32]kgo.EpochOffset{}
+		for _, r := range records {
+			if _, ok := offsets[r.Partition]; !ok {
+				offsets[r.Partition] = kgo.EpochOffset{Epoch: r.LeaderEpoch, Offset: r.Offset}
 			}
 		}
-		reason := ""
-		if bad != nil {
-			reason = bad.Error()
+		s.Queue.SetOffsets(map[string]map[int32]kgo.EpochOffset{s.Queue.Topic: offsets})
+	}()
+	for i, r := range records {
+		if err := s.consume(batch, r); err != nil {
+			return i, err
 		}
-		changed, e := finishMessage.Run(ctx, s.Redis, []string{s.Stream(), s.Stream() + ":dead", s.Prefix + "queued:" + strconv.FormatInt(v.id, 10)}, Group, m.ID, reason, fmt.Sprint(m.Values), v.id).Int()
-		if e != nil {
-			return i, e
+	}
+	if len(records) > 0 {
+		if err := s.Queue.CommitRecords(batch, records...); err != nil {
+			return 0, err
 		}
-		if changed == 0 {
+		s.Metrics.MQ("consume", len(records))
+		return len(records), nil
+	}
+	return 0, f.Err()
+}
+
+func (s Sale) Reconcile(ctx context.Context, age time.Duration) (int, error) {
+	now, err := s.Redis.Time(ctx).Result()
+	if err != nil {
+		return 0, err
+	}
+	ids, err := s.Redis.ZRangeByScore(ctx, s.Pending(), &redis.ZRangeBy{Min: "-inf", Max: strconv.FormatInt(now.Add(-age).UnixMilli(), 10), Count: 256}).Result()
+	if err != nil {
+		return 0, err
+	}
+	n := 0
+	for _, id := range ids {
+		payload, err := s.Redis.HGet(ctx, s.Prefix+"queued:"+id, "payload").Bytes()
+		if errors.Is(err, redis.Nil) {
 			continue
 		}
-		s.Metrics.Stream("ack", 1)
-		if bad != nil {
-			s.Metrics.Stream("dead_letter", 1)
+		if err != nil {
+			return n, err
 		}
-	}
-	return len(msgs), nil
-}
-func (s Sale) Read(ctx context.Context, name string) (int, error) {
-	v, e := s.Redis.XReadGroup(ctx, &redis.XReadGroupArgs{Group: Group, Consumer: name, Streams: []string{s.Stream(), ">"}, Count: 64, Block: time.Second}).Result()
-	if errors.Is(e, redis.Nil) {
-		return 0, nil
-	}
-	if e != nil {
-		return 0, e
-	}
-	return s.consume(ctx, v[0].Messages)
-}
-func (s Sale) Claim(ctx context.Context, name string, idle time.Duration) (int, error) {
-	cursor := "0-0"
-	total := 0
-	for {
-		v, next, e := s.Redis.XAutoClaim(ctx, &redis.XAutoClaimArgs{Group: Group, Consumer: name, Stream: s.Stream(), Start: cursor, MinIdle: idle, Count: 64}).Result()
-		if e != nil {
-			return total, e
+		if err = s.Queue.Publish(ctx, id, payload); err != nil {
+			return n, err
 		}
-		n, e := s.consume(ctx, v)
-		total += n
-		s.Metrics.Stream("reclaim", n)
-		if e != nil || next == "0-0" {
-			return total, e
+		if err = s.Redis.ZAddXX(ctx, s.Pending(), redis.Z{Score: float64(now.UnixMilli()), Member: id}).Err(); err != nil {
+			return n, err
 		}
-		cursor = next
+		n++
+		s.Metrics.MQ("reconcile", 1)
 	}
+	return n, nil
 }
 func (s Sale) Expire(ctx context.Context) error {
 	_, e := s.DB.ExecContext(ctx, `WITH locked AS (SELECT id FROM tb_voucher_order WHERE status=1 AND create_time<=now()-interval '15 minutes' ORDER BY create_time LIMIT 100 FOR UPDATE SKIP LOCKED),
@@ -193,8 +223,12 @@ UPDATE tb_seckill_voucher s SET stock=s.stock+q.n FROM (SELECT voucher_id,count(
 		}
 		k := s.key(r[1])
 		id := newOrderID()
-		if e = releaseScript.Run(ctx, s.Redis, []string{k, k + ":released", k + ":wait", k + ":buyers", s.Stream(), s.Prefix + "queued:" + id}, r[0], r[2], r[1], id).Err(); e != nil {
-			return e
+		payload, err := releaseScript.Run(ctx, s.Redis, []string{k, k + ":released", k + ":wait", k + ":buyers", s.Pending(), s.Prefix + "queued:" + id}, r[0], r[2], r[1], id).Text()
+		if err != nil {
+			return err
+		}
+		if payload != "" {
+			s.publishAdmission(ctx, id, payload)
 		}
 		if _, e = s.DB.ExecContext(ctx, "DELETE FROM trade_release WHERE order_id=$1", r[0]); e != nil {
 			return e
@@ -202,26 +236,38 @@ UPDATE tb_seckill_voucher s SET stock=s.stock+q.n FROM (SELECT voucher_id,count(
 	}
 	return nil
 }
-func (s Sale) Run(ctx context.Context, name string) error {
-	if e := s.InitGroup(ctx); e != nil {
-		return e
-	}
-	var next time.Time
-	for ctx.Err() == nil {
-		if time.Now().After(next) {
-			if _, e := s.Claim(ctx, name, 30*time.Second); e != nil {
-				slog.Error("claim", "error", e)
+func (s Sale) Run(ctx context.Context) error {
+	ctx, cancel := context.WithCancel(ctx)
+	done := make(chan struct{})
+	defer func() { cancel(); <-done }()
+	go func() {
+		defer close(done)
+		ticker := time.NewTicker(min(s.ReconcileAge, time.Second))
+		defer ticker.Stop()
+		var next time.Time
+		for ctx.Err() == nil {
+			if _, err := s.Reconcile(ctx, s.ReconcileAge); err != nil && ctx.Err() == nil {
+				slog.Error("reconcile", "error", err)
 			}
-			if e := s.Expire(ctx); e != nil {
-				slog.Error("expire", "error", e)
+			if time.Now().After(next) {
+				if err := s.Expire(ctx); err != nil {
+					slog.Error("expire", "error", err)
+				}
+				if err := s.reminders(ctx); err != nil {
+					slog.Error("reminders", "error", err)
+				}
+				next = time.Now().Add(5 * time.Second)
 			}
-			if e := s.reminders(ctx); e != nil && ctx.Err() == nil {
-				slog.Error("reminders", "error", e)
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
 			}
-			next = time.Now().Add(5 * time.Second)
 		}
-		if _, e := s.Read(ctx, name); e != nil && ctx.Err() == nil {
-			slog.Error("consume", "error", e)
+	}()
+	for ctx.Err() == nil {
+		if _, err := s.Read(ctx); err != nil && ctx.Err() == nil {
+			slog.Error("consume", "error", err)
 			select {
 			case <-ctx.Done():
 			case <-time.After(time.Second):
@@ -232,7 +278,7 @@ func (s Sale) Run(ctx context.Context, name string) error {
 }
 func (s Sale) Status(ctx context.Context, id, u int64) (string, error) {
 	// Check queued first. The worker removes this marker only after SQL commit.
-	owner, e := s.Redis.Get(ctx, fmt.Sprintf("%squeued:%d", s.Prefix, id)).Int64()
+	owner, e := s.Redis.HGet(ctx, fmt.Sprintf("%squeued:%d", s.Prefix, id), "user").Int64()
 	if e == nil && owner == u {
 		return "queued", nil
 	}

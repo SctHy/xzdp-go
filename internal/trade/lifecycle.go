@@ -68,20 +68,20 @@ func (s Sale) Wait(ctx context.Context, v, u int64) (string, error) {
 }
 
 // Return to the exact bucket or atomically promote the oldest waiting buyer.
-const releaseLua = `
-if redis.call('SISMEMBER',KEYS[2],ARGV[1])==1 then return 0 end
+const releaseLua = queueLua + `
+if redis.call('SISMEMBER',KEYS[2],ARGV[1])==1 then return '' end
 local n=tonumber(redis.call('HGET',KEYS[1],'buckets'))
 local bucket=tonumber(ARGV[2])%n
 local buyer=redis.call('ZRANGE',KEYS[3],0,0)[1]
+local result=''
 if buyer and tonumber(redis.call('TIME')[1])<tonumber(redis.call('HGET',KEYS[1],'end')) then
- redis.call('XADD',KEYS[5],'*','id',ARGV[4],'voucher',ARGV[3],'user',buyer,'bucket',bucket)
+ result=enqueue(KEYS[5],KEYS[6],ARGV[4],ARGV[3],buyer,bucket)
  redis.call('HSET',KEYS[4],buyer,ARGV[4])
- redis.call('SET',KEYS[6],buyer,'EX',86400)
  redis.call('ZREM',KEYS[3],buyer)
 else
  redis.call('INCR',KEYS[1]..':stock:'..bucket)
 end
 redis.call('SADD',KEYS[2],ARGV[1])
-return 1`
+return result`
 
 var releaseScript = redis.NewScript(releaseLua)

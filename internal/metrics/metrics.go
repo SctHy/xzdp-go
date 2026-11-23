@@ -12,15 +12,15 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
-type Metrics struct{ stream *prometheus.CounterVec }
+type Metrics struct{ mq *prometheus.CounterVec }
 
-func (m *Metrics) Stream(event string, n int) {
+func (m *Metrics) MQ(event string, n int) {
 	if m == nil {
 		return
 	}
 	switch event {
-	case "ack", "reclaim", "dead_letter":
-		m.stream.WithLabelValues(event).Add(float64(n))
+	case "produce", "consume", "reconcile", "dead_letter":
+		m.mq.WithLabelValues(event).Add(float64(n))
 	}
 }
 func Register(h *server.Hertz) *Metrics {
@@ -29,10 +29,10 @@ func Register(h *server.Hertz) *Metrics {
 
 func register(h *server.Hertz, r *prometheus.Registry) *Metrics {
 	latency := prometheus.NewHistogramVec(prometheus.HistogramOpts{Name: "xzdp_http_seconds", Help: "Request duration by registered route and status class."}, []string{"route", "status"})
-	m := &Metrics{prometheus.NewCounterVec(prometheus.CounterOpts{Name: "xzdp_stream_messages_total", Help: "Messages processed by operation."}, []string{"operation"})}
-	r.MustRegister(latency, m.stream)
-	for _, event := range []string{"ack", "reclaim", "dead_letter"} {
-		m.Stream(event, 0)
+	m := &Metrics{prometheus.NewCounterVec(prometheus.CounterOpts{Name: "xzdp_mq_messages_total", Help: "Messages processed by operation."}, []string{"operation"})}
+	r.MustRegister(latency, m.mq)
+	for _, event := range []string{"produce", "consume", "reconcile", "dead_letter"} {
+		m.MQ(event, 0)
 	}
 	h.Use(func(ctx context.Context, c *app.RequestContext) {
 		start := time.Now()

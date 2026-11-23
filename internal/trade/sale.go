@@ -7,20 +7,28 @@ import (
 	"database/sql"
 	"encoding/binary"
 	"fmt"
+	"log/slog"
 	"strconv"
+	"time"
 
 	"github.com/redis/go-redis/v9"
 
 	api "xzdp/internal/httpapi/endpoint"
 	"xzdp/internal/metrics"
+	"xzdp/internal/mq"
 )
 
 type Sale struct {
-	DB      *sql.DB
-	Redis   *redis.Client
-	Prefix  string
-	Buckets int
-	Metrics *metrics.Metrics
+	Queue     *mq.Queue
+	Publisher interface {
+		Publish(context.Context, string, []byte) error
+	}
+	ReconcileAge time.Duration
+	DB           *sql.DB
+	Redis        *redis.Client
+	Prefix       string
+	Buckets      int
+	Metrics      *metrics.Metrics
 }
 
 func (s Sale) key(v int64) string { return fmt.Sprintf("%sv:%d", s.Prefix, v) }
@@ -76,11 +84,19 @@ func (s Sale) Warm(ctx context.Context, v int64) error {
 }
 
 const unpaid = 1
-const Group = "orders"
 
-func (s Sale) Stream() string { return s.Prefix + "orders" }
+func (s Sale) Pending() string { return s.Prefix + "pending" }
 
-const reserveLua = `
+const queueLua = `
+local function enqueue(pending,queued,id,voucher,user,bucket)
+ local now=redis.call('TIME')
+ local payload=cjson.encode({id=id,voucher=voucher,user=user,bucket=tostring(bucket)})
+ redis.call('HSET',queued,'user',user,'payload',payload)
+ redis.call('ZADD',pending,tonumber(now[1])*1000+math.floor(tonumber(now[2])/1000),id)
+ return payload
+end
+`
+const reserveLua = queueLua + `
 local prior=redis.call('HGET',KEYS[2],ARGV[2])
 if prior then return prior end
 local t=tonumber(redis.call('TIME')[1])
@@ -92,12 +108,11 @@ for offset=0,n-1 do
  local b=(tonumber(ARGV[2])%n+offset)%n
  local stock=KEYS[1]..':stock:'..b
  if tonumber(redis.call('GET',stock))>0 then
-  redis.call('XADD',KEYS[3],'*','id',ARGV[3],'voucher',ARGV[1],'user',ARGV[2],'bucket',b)
+  local payload=enqueue(KEYS[3],KEYS[4],ARGV[3],ARGV[1],ARGV[2],b)
   redis.call('DECR',stock)
   redis.call('ZREM',KEYS[5],ARGV[2])
   redis.call('HSET',KEYS[2],ARGV[2],ARGV[3])
-  redis.call('SET',KEYS[4],ARGV[2],'EX',86400)
-  return ARGV[3]
+  return payload
  end
 end
 return 'soldout'`
@@ -115,7 +130,7 @@ func (s Sale) Reserve(ctx context.Context, v, u int64) (string, error) {
 	id := newOrderID()
 	k := s.key(v)
 	run := func() (string, error) {
-		return reserveScript.Run(ctx, s.Redis, []string{k, k + ":buyers", s.Stream(), s.Prefix + "queued:" + id, k + ":wait"}, v, u, id).Text()
+		return reserveScript.Run(ctx, s.Redis, []string{k, k + ":buyers", s.Pending(), s.Prefix + "queued:" + id, k + ":wait"}, v, u, id).Text()
 	}
 	result, e := run()
 	if result == "cold" && e == nil {
@@ -124,6 +139,10 @@ func (s Sale) Reserve(ctx context.Context, v, u int64) (string, error) {
 		}
 		result, e = run()
 	}
+	if e == nil && len(result) > 0 && result[0] == '{' {
+		s.publishAdmission(ctx, id, result)
+		return id, nil
+	}
 	switch result {
 	case "soldout":
 		return "", SoldOut
@@ -131,4 +150,15 @@ func (s Sale) Reserve(ctx context.Context, v, u int64) (string, error) {
 		return "", api.Problem("活动未开放")
 	}
 	return result, e
+}
+
+func (s Sale) publishAdmission(ctx context.Context, id, payload string) {
+	if s.Publisher == nil {
+		return
+	}
+	if err := s.Publisher.Publish(ctx, id, []byte(payload)); err != nil {
+		slog.Warn("order pending Kafka reconciliation", "order", id, "error", err)
+		return
+	}
+	s.Metrics.MQ("produce", 1)
 }

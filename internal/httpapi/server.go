@@ -2,7 +2,6 @@ package httpapi
 
 import (
 	"context"
-	"crypto/rand"
 	"embed"
 	"errors"
 	"fmt"
@@ -25,6 +24,7 @@ import (
 	"xzdp/internal/cache"
 	api "xzdp/internal/httpapi/endpoint"
 	"xzdp/internal/metrics"
+	"xzdp/internal/mq"
 	"xzdp/internal/shop"
 	"xzdp/internal/social"
 	"xzdp/internal/store"
@@ -129,7 +129,16 @@ func Run(worker bool) error {
 	if e != nil || b < 1 || b > 64 {
 		return fmt.Errorf("STOCK_BUCKETS must be 1..64")
 	}
-	sale := trade.Sale{DB: s.DB, Redis: s.Redis, Prefix: s.Prefix + "trade:", Buckets: b}
+	age, e := time.ParseDuration(store.Env("KAFKA_RECONCILE_AGE", "5s"))
+	if e != nil || age <= 0 {
+		return fmt.Errorf("invalid KAFKA_RECONCILE_AGE")
+	}
+	queue, e := mq.Open(store.Env("KAFKA_TOPIC", "xzdp.seckill.orders"), worker)
+	if e != nil {
+		return e
+	}
+	defer queue.CloseAllowingRebalance()
+	sale := trade.Sale{Queue: queue, Publisher: queue, ReconcileAge: age, DB: s.DB, Redis: s.Redis, Prefix: s.Prefix + "trade:", Buckets: b}
 	addr := ":8080"
 	if worker {
 		addr = ":8082"
@@ -137,17 +146,22 @@ func Run(worker bool) error {
 	h := server.New(server.WithHostPorts(store.Env("LISTEN_ADDR", addr)), server.WithExitWaitTime(10*time.Second))
 	sale.Metrics = metrics.Register(h)
 	var draining atomic.Bool
-	registerHealth(h, s.Ready, &draining)
+	registerHealth(h, func(ctx context.Context) error {
+		ctx, cancel := context.WithTimeout(ctx, 2*time.Second)
+		defer cancel()
+		if err := s.Ready(ctx); err != nil {
+			return err
+		}
+		return queue.Ping(ctx)
+	}, &draining)
 	if !worker {
 		Register(h, s, sale)
-	} else if e = sale.InitGroup(ctx); e != nil {
-		return e
 	}
 	run, cancel := context.WithCancel(ctx)
 	defer cancel()
 	done := make(chan error, 1)
 	if worker {
-		go func() { done <- sale.Run(run, rand.Text()) }()
+		go func() { done <- sale.Run(run) }()
 	}
 	httpDone := make(chan error, 1)
 	go func() { httpDone <- h.Run() }()
@@ -166,5 +180,7 @@ func Run(worker bool) error {
 	if worker {
 		<-done
 	}
-	return errors.Join(e, closeErr)
+	flush, finish := context.WithTimeout(context.Background(), 5*time.Second)
+	defer finish()
+	return errors.Join(e, closeErr, queue.Flush(flush))
 }

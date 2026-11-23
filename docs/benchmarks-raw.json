@@ -6,9 +6,9 @@
     "timing": {
       "Requests": 5000,
       "Concurrency": 64,
-      "QPS": 4003737.889693818,
-      "P50ms": 0.000417,
-      "P99ms": 0.28975
+      "QPS": 1685890.3119301691,
+      "P50ms": 0.000917,
+      "P99ms": 0.6435
     }
   },
   "cache_Redis": {
@@ -18,9 +18,9 @@
     "timing": {
       "Requests": 5000,
       "Concurrency": 64,
-      "QPS": 29780.842896249866,
-      "P50ms": 1.738125,
-      "P99ms": 9.157417
+      "QPS": 59995.89004154859,
+      "P50ms": 0.986125,
+      "P99ms": 4.888042
     }
   },
   "cache_cold": {
@@ -30,9 +30,9 @@
     "timing": {
       "Requests": 200,
       "Concurrency": 200,
-      "QPS": 122664.91991820703,
-      "P50ms": 1.2365,
-      "P99ms": 1.538833
+      "QPS": 139380.88405113327,
+      "P50ms": 0.830084,
+      "P99ms": 1.253333
     }
   },
   "go": "go1.27.3",
@@ -41,9 +41,9 @@
     "timing": {
       "Requests": 500,
       "Concurrency": 20,
-      "QPS": 1767.1281493554657,
-      "P50ms": 8.553166,
-      "P99ms": 62.639458
+      "QPS": 3306.771689735533,
+      "P50ms": 4.137375,
+      "P99ms": 36.563458
     }
   },
   "platform": "darwin/arm64",
@@ -56,17 +56,17 @@
     "admission": {
       "Requests": 200,
       "Concurrency": 200,
-      "QPS": 37067.92697618386,
-      "P50ms": 4.139166,
-      "P99ms": 4.685084
+      "QPS": 16152.153283934666,
+      "P50ms": 5.240917,
+      "P99ms": 12.218875
     },
     "duplicate_orders": 0,
-    "end_to_end_ms_including_retries": 390,
+    "end_to_end_ms_including_retries": 274,
     "lost": 0,
     "oversold": 0,
     "pending": 0,
     "persisted": 100,
-    "reclaimed": 10,
+    "reconciled": 10,
     "stock_remaining": 0
   },
   "sale_8_bucket": {
@@ -75,19 +75,19 @@
     "admission": {
       "Requests": 200,
       "Concurrency": 200,
-      "QPS": 30658.976373426332,
-      "P50ms": 3.64775,
-      "P99ms": 5.966875
+      "QPS": 10835.630261206414,
+      "P50ms": 3.726625,
+      "P99ms": 18.439417
     },
     "duplicate_orders": 0,
-    "end_to_end_ms_including_retries": 504,
+    "end_to_end_ms_including_retries": 5309,
     "lost": 0,
     "oversold": 0,
     "pending": 0,
     "persisted": 100,
-    "reclaimed": 10,
+    "reconciled": 10,
     "stock_remaining": 0
   },
-  "scope": "Direct service calls from the host to one Redis instance and one PostGIS instance. Sale latency measures admission; end-to-end includes duplicate retries, persistence and takeover.",
-  "utc": "2026-11-23T09:44:28.791227Z"
+  "scope": "Direct service calls from the host to Redis, Kafka and PostGIS. Sale latency measures admission; end-to-end includes duplicate retries, persistence and reconciliation.",
+  "utc": "2026-11-23T10:24:44.452906Z"
 }

@@ -24,7 +24,10 @@ import (
 	"github.com/jackc/pgx/v5/stdlib"
 	"github.com/redis/go-redis/v9"
 
+	"github.com/twmb/franz-go/pkg/kerr"
+	"github.com/twmb/franz-go/pkg/kmsg"
 	"xzdp/internal/cache"
+	"xzdp/internal/mq"
 	"xzdp/internal/shop"
 	"xzdp/internal/store"
 	"xzdp/internal/trade"
@@ -173,16 +176,86 @@ func caches(ctx context.Context, s *store.Store, out map[string]any) error {
 	}
 	return nil
 }
-func sales(ctx context.Context, s *store.Store, b int, out map[string]any) error {
+
+// Use dedicated topics even when the broker is shared with other projects.
+func benchQueue(ctx context.Context, prefix string) (*mq.Queue, func() error, error) {
+	topic := strings.TrimSuffix(prefix, ":") + ".orders"
+	admin, err := mq.Open(topic, false)
+	if err != nil {
+		return nil, nil, err
+	}
+	cleanup := func() error {
+		defer admin.Close()
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+		req := kmsg.NewPtrDeleteTopicsRequest()
+		req.TopicNames = []string{topic, topic + ".dlq"}
+		for _, name := range req.TopicNames {
+			t := kmsg.NewDeleteTopicsRequestTopic()
+			t.Topic = &name
+			req.Topics = append(req.Topics, t)
+		}
+		res, err := req.RequestWith(ctx, admin.Client)
+		if err != nil {
+			return err
+		}
+		for _, t := range res.Topics {
+			if e := kerr.ErrorForCode(t.ErrorCode); e != nil && e != kerr.UnknownTopicOrPartition {
+				return e
+			}
+		}
+		return nil
+	}
+	req := kmsg.NewPtrCreateTopicsRequest()
+	for _, name := range []string{topic, topic + ".dlq"} {
+		t := kmsg.NewCreateTopicsRequestTopic()
+		t.Topic = name
+		t.NumPartitions = 4
+		t.ReplicationFactor = 1
+		req.Topics = append(req.Topics, t)
+	}
+	res, err := req.RequestWith(ctx, admin.Client)
+	if err == nil {
+		for _, t := range res.Topics {
+			err = errors.Join(err, kerr.ErrorForCode(t.ErrorCode))
+		}
+	}
+	if err != nil {
+		return nil, nil, errors.Join(err, cleanup())
+	}
+	q, err := mq.Open(topic, true)
+	if err != nil {
+		return nil, nil, errors.Join(err, cleanup())
+	}
+	return q, func() error { q.CloseAllowingRebalance(); return cleanup() }, nil
+}
+
+type crashPublisher struct {
+	queue *mq.Queue
+	calls atomic.Int64
+}
+
+func (p *crashPublisher) Publish(ctx context.Context, id string, value []byte) error {
+	if p.calls.Add(1) <= 10 {
+		return errors.New("simulated interruption before Kafka send")
+	}
+	return p.queue.Publish(ctx, id, value)
+}
+
+func sales(ctx context.Context, s *store.Store, b int, out map[string]any) (err error) {
 	v := int64(100 + b)
 	_, e := s.DB.ExecContext(ctx, "INSERT INTO tb_seckill_voucher(voucher_id,stock,begin_time,end_time) VALUES($1,100,now()-interval '1 minute',now()+interval '1 hour')", v)
 	if e != nil {
 		return e
 	}
 	sale := trade.Sale{DB: s.DB, Redis: s.Redis, Prefix: fmt.Sprintf("%sv%d:", s.Prefix, b), Buckets: b}
-	if e = sale.InitGroup(ctx); e != nil {
+	q, cleanup, e := benchQueue(ctx, fmt.Sprintf("%sv%d", strings.TrimSuffix(s.Prefix, ":"), b))
+	if e != nil {
 		return e
 	}
+	defer func() { err = errors.Join(err, cleanup()) }()
+	sale.Queue = q
+	sale.Publisher = &crashPublisher{queue: q}
 	if e = sale.Warm(ctx, v); e != nil {
 		return e
 	}
@@ -216,28 +289,31 @@ func sales(ctx context.Context, s *store.Store, b int, out map[string]any) error
 	if accepted != 100 {
 		return fmt.Errorf("accepted %d", accepted)
 	}
-	msgs, e := s.Redis.XReadGroup(ctx, &redis.XReadGroupArgs{Group: trade.Group, Consumer: "crashed", Streams: []string{sale.Stream(), ">"}, Count: 10}).Result()
-	if e != nil {
-		return e
-	}
-	abandoned := len(msgs[0].Messages)
+	abandoned := 10
 	normal := 0
 	for normal < accepted-abandoned {
-		n, e := sale.Read(ctx, "survivor")
+		n, e := sale.Read(ctx)
 		if e != nil {
 			return e
 		}
 		normal += n
 	}
-	claimed, e := sale.Claim(ctx, "survivor", 0)
+	missing, e := s.Redis.ZCard(ctx, sale.Pending()).Result()
 	if e != nil {
+		return e
+	}
+	if missing != 10 {
+		return fmt.Errorf("expected ten unpublished reservations, found %d", missing)
+	}
+	sale.ReconcileAge = 100 * time.Millisecond
+	if e = waitForRecovery(ctx, sale); e != nil {
 		return e
 	}
 	var count, unique, left int
 	if e = s.DB.QueryRowContext(ctx, "SELECT count(*),count(DISTINCT user_id),(SELECT stock FROM tb_seckill_voucher WHERE voucher_id=$1) FROM tb_voucher_order WHERE voucher_id=$1", v).Scan(&count, &unique, &left); e != nil {
 		return e
 	}
-	pending, e := s.Redis.XPending(ctx, sale.Stream(), trade.Group).Result()
+	pending, e := s.Redis.ZCard(ctx, sale.Pending()).Result()
 	if e != nil {
 		return e
 	}
@@ -261,12 +337,38 @@ func sales(ctx context.Context, s *store.Store, b int, out map[string]any) error
 	if e = rows.Err(); e != nil {
 		return e
 	}
-	if abandoned != 10 || count != 100 || unique != count || left != 0 || claimed != abandoned || pending.Count != 0 {
-		return fmt.Errorf("inconsistent orders %d/%d stock %d recovered %d pending %d", count, unique, left, claimed, pending.Count)
+	claimed := count - normal
+	if abandoned != 10 || count != 100 || unique != count || left != 0 || claimed != abandoned || pending != 0 {
+		return fmt.Errorf("inconsistent orders %d/%d stock %d recovered %d pending %d", count, unique, left, claimed, pending)
 	}
-	out[fmt.Sprintf("sale_%d_bucket", b)] = map[string]any{"admission": stats, "accepted": accepted, "persisted": count, "stock_remaining": left, "oversold": max(count-100, 0), "lost": accepted - count, "duplicate_orders": count - unique, "abandoned": abandoned, "reclaimed": claimed, "pending": pending.Count, "end_to_end_ms_including_retries": time.Since(start).Milliseconds()}
+	out[fmt.Sprintf("sale_%d_bucket", b)] = map[string]any{"admission": stats, "accepted": accepted, "persisted": count, "stock_remaining": left, "oversold": max(count-100, 0), "lost": accepted - count, "duplicate_orders": count - unique, "abandoned": abandoned, "reconciled": claimed, "pending": pending, "end_to_end_ms_including_retries": time.Since(start).Milliseconds()}
 	return nil
 }
+
+// Drive the production Worker until it has committed every pending reservation.
+func waitForRecovery(ctx context.Context, sale trade.Sale) error {
+	run, cancel := context.WithCancel(ctx)
+	done := make(chan struct{})
+	var workerErr error
+	go func() { defer close(done); workerErr = sale.Run(run) }()
+	defer func() { cancel(); <-done }()
+	ticker := time.NewTicker(10 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-done:
+			return workerErr
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-ticker.C:
+			n, err := sale.Redis.ZCard(ctx, sale.Pending()).Result()
+			if err != nil || n == 0 {
+				return err
+			}
+		}
+	}
+}
+
 func geo(ctx context.Context, s *store.Store, out map[string]any) error {
 	_, e := s.DB.ExecContext(ctx, `INSERT INTO tb_shop(name,type_id,images,address,x,y,sold,comments,score) SELECT 'Bench cafe '||i,1,'','',120.1+(i%100)::float/1000,30.2+(i/100)::float/1000,0,0,40 FROM generate_series(1,10000)i`)
 	if e != nil {
@@ -319,7 +421,7 @@ func run(ctx context.Context, w io.Writer) error {
 			}
 		}
 		out["postgres_version"], out["postgis_version"] = pg, spatial
-		out["scope"] = "Direct service calls from the host to one Redis instance and one PostGIS instance. Sale latency measures admission; end-to-end includes duplicate retries, persistence and takeover."
+		out["scope"] = "Direct service calls from the host to Redis, Kafka and PostGIS. Sale latency measures admission; end-to-end includes duplicate retries, persistence and reconciliation."
 		if e := caches(ctx, s, out); e != nil {
 			return e
 		}

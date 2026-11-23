@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"strconv"
@@ -13,9 +14,9 @@ import (
 
 	"github.com/cloudwego/hertz/pkg/app/server"
 	"github.com/cloudwego/hertz/pkg/common/ut"
-	"github.com/redis/go-redis/v9"
 
 	"xzdp/internal/httpapi"
+	"xzdp/internal/mq"
 	"xzdp/internal/store"
 	"xzdp/internal/trade"
 )
@@ -42,11 +43,15 @@ func TestConsoleLifecycle(t *testing.T) {
 	t.Setenv("MOCK_PAYMENT", "true")
 	ctx, cancel := context.WithTimeout(t.Context(), time.Minute)
 	defer cancel()
-	e := fixture(ctx, func(s *store.Store) error {
+	e := fixture(ctx, func(s *store.Store) (err error) {
 		sale := trade.Sale{DB: s.DB, Redis: s.Redis, Prefix: s.Prefix + "trade:", Buckets: 4}
-		if e := sale.InitGroup(ctx); e != nil {
+		q, cleanup, e := benchQueue(ctx, s.Prefix)
+		if e != nil {
 			return e
 		}
+		defer func() { err = errors.Join(err, cleanup()) }()
+		sale.Queue = q
+		sale.Publisher = q
 		h := server.New()
 		httpapi.Register(h, s, sale)
 		b := browser{h: h}
@@ -143,7 +148,7 @@ func TestConsoleLifecycle(t *testing.T) {
 		if status, e := get("/orders/" + id); e != nil || string(status) != `"queued"` {
 			return fmt.Errorf("queued %s: %v", status, e)
 		}
-		if _, e = sale.Read(ctx, "worker"); e != nil {
+		if _, e = sale.Read(ctx); e != nil {
 			return e
 		}
 		paid, e := post("/orders/"+id+"/pay", "{}")
@@ -172,18 +177,18 @@ func TestConsoleLifecycle(t *testing.T) {
 		if e != nil {
 			return e
 		}
-		stream := sale.Stream()
-		if e = s.Redis.XAdd(ctx, &redis.XAddArgs{Stream: stream, Values: map[string]any{"id": id, "user": buyer, "voucher": 2, "bucket": buyer % 4}}).Err(); e != nil {
+		payload, _ := json.Marshal(map[string]string{"id": id, "user": strconv.FormatInt(buyer, 10), "voucher": "2", "bucket": strconv.FormatInt(buyer%4, 10)})
+		if e = q.Publish(ctx, id, payload); e != nil {
 			return e
 		}
-		if _, e = sale.Read(ctx, "worker"); e != nil {
+		if _, e = sale.Read(ctx); e != nil {
 			return e
 		}
 		second, e := sale.Reserve(ctx, 2, buyer+1)
 		if e != nil {
 			return e
 		}
-		if _, e = sale.Read(ctx, "worker"); e != nil {
+		if _, e = sale.Read(ctx); e != nil {
 			return e
 		}
 		_, e = s.DB.ExecContext(ctx, "UPDATE tb_voucher_order SET create_time=now()-interval '16 minutes' WHERE id=$1", second)
@@ -206,14 +211,56 @@ func TestConsoleLifecycle(t *testing.T) {
 		if state, e := sale.Status(ctx, oid, buyer+1); e != nil || state != "cancelled" {
 			return fmt.Errorf("expired %s: %v", state, e)
 		}
-		if e = s.Redis.XAdd(ctx, &redis.XAddArgs{Stream: stream, Values: map[string]any{"malformed": "test"}}).Err(); e != nil {
+		if e = q.Publish(ctx, "bad", []byte("malformed")); e != nil {
 			return e
 		}
-		if _, e = sale.Read(ctx, "worker"); e != nil {
+		if _, e = sale.Read(ctx); e != nil {
 			return e
 		}
-		if n, e := s.Redis.XLen(ctx, stream+":dead").Result(); e != nil || n != 1 {
+		var n int
+		if e := s.DB.QueryRowContext(ctx, "SELECT count(*) FROM trade_dead_letter WHERE payload=$1", []byte("malformed")).Scan(&n); e != nil || n != 1 {
 			return fmt.Errorf("dead letters %d: %v", n, e)
+		}
+		dlq, e := mq.Open(q.Topic+".dlq", true)
+		if e != nil {
+			return e
+		}
+		defer dlq.CloseAllowingRebalance()
+		fetch := dlq.PollRecords(ctx, 1)
+		if e = fetch.Err(); e != nil {
+			return e
+		}
+		records := fetch.Records()
+		if len(records) != 1 || string(records[0].Value) != "malformed" {
+			return fmt.Errorf("unexpected Kafka dead letter")
+		}
+
+		_, e = s.DB.ExecContext(ctx, "INSERT INTO tb_seckill_voucher(voucher_id,stock,begin_time,end_time) VALUES(900,1,now()-interval '1 minute',now()+interval '1 hour')")
+		if e != nil {
+			return e
+		}
+		originalOrder, e := sale.Reserve(ctx, 900, buyer)
+		if e != nil {
+			return e
+		}
+		if _, e = sale.Read(ctx); e != nil {
+			return e
+		}
+		if _, e = sale.Wait(ctx, 900, buyer+1); e != nil {
+			return e
+		}
+		if _, e = s.DB.ExecContext(ctx, "UPDATE tb_voucher_order SET create_time=now()-interval '16 minutes' WHERE id=$1", originalOrder); e != nil {
+			return e
+		}
+		if e = sale.Expire(ctx); e != nil {
+			return e
+		}
+		if _, e = sale.Read(ctx); e != nil {
+			return e
+		}
+		var promoted bool
+		if e = s.DB.QueryRowContext(ctx, "SELECT EXISTS(SELECT FROM tb_voucher_order WHERE voucher_id=900 AND user_id=$1 AND status=1) AND stock=0 FROM tb_seckill_voucher WHERE voucher_id=900", buyer+1).Scan(&promoted); e != nil || !promoted {
+			return fmt.Errorf("waitlist promotion %t: %v", promoted, e)
 		}
 		return nil
 	})

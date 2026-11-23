@@ -1,6 +1,9 @@
 global:
   scrape_interval: 15s
 scrape_configs:
-  - job_name: xzdp
+  - job_name: xzdp-api
     static_configs:
-      - targets: [api:8080, worker:8082]
+      - targets: [api:8080]
+  - job_name: xzdp-worker
+    static_configs:
+      - targets: [worker:8082]
