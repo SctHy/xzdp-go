@@ -1,0 +1,55 @@
+package trade
+
+import (
+	"math"
+	"strconv"
+	"testing"
+
+	"github.com/redis/go-redis/v9"
+)
+
+func TestStreamEventValidation(t *testing.T) {
+	valid := map[string]any{"id": "9007199254740993", "voucher": "1", "user": "5", "bucket": "63"}
+	v, e := parse(redis.XMessage{Values: valid})
+	if e != nil || v.id != 9007199254740993 {
+		t.Fatal(v, e)
+	}
+	for _, field := range []string{"bucket", "user", "voucher", "id"} {
+		for _, bad := range []string{"-1", "x", ""} {
+			values := map[string]any{}
+			for k, v := range valid {
+				values[k] = v
+			}
+			values[field] = bad
+			if _, e = parse(redis.XMessage{Values: values}); e == nil {
+				t.Fatalf("accepted %s=%q", field, bad)
+			}
+		}
+	}
+}
+
+func TestParseBoundaries(t *testing.T) {
+	for _, bucket := range []string{"0", "63"} {
+		values := map[string]any{"id": "9223372036854775807", "user": "1", "voucher": "2", "bucket": bucket}
+		evt, err := parse(redis.XMessage{Values: values})
+		if err != nil || evt.id != math.MaxInt64 || evt.user != 1 || evt.voucher != 2 || strconv.Itoa(evt.bucket) != bucket {
+			t.Fatal(evt, err)
+		}
+	}
+	for _, field := range []string{"id", "user", "voucher", "bucket"} {
+		for _, value := range []any{nil, "9223372036854775808", "1.5", "0"} {
+			m := map[string]any{"id": "1", "user": "1", "voucher": "1", "bucket": "0"}
+			switch {
+			case value == nil:
+				delete(m, field)
+			case field == "bucket" && value == "0":
+				m[field] = "64"
+			default:
+				m[field] = value
+			}
+			if _, err := parse(redis.XMessage{Values: m}); err == nil {
+				t.Fatalf("accepted %v", m)
+			}
+		}
+	}
+}

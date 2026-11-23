@@ -4,7 +4,8 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
-	"errors"
+
+	api "xzdp/internal/httpapi/endpoint"
 )
 
 const paid = 2
@@ -40,7 +41,7 @@ func (s Sale) Pay(ctx context.Context, id, buyer int64) (Payment, error) {
 			return Payment{}, e
 		}
 		if n == 0 {
-			return Payment{}, errors.New("订单已超过付款期限")
+			return Payment{}, api.Problem("订单已超过付款期限")
 		}
 		var random [16]byte
 		if _, err = rand.Read(random[:]); err != nil {
@@ -49,7 +50,7 @@ func (s Sale) Pay(ctx context.Context, id, buyer int64) (Payment, error) {
 		code = hex.EncodeToString(random[:])
 		_, err = tx.ExecContext(ctx, "INSERT INTO voucher_redemption(order_id,code) VALUES($1,$2)", id, code)
 	default:
-		return Payment{}, errors.New("当前订单状态不可付款")
+		return Payment{}, api.Problem("当前订单状态不可付款")
 	}
 	if err != nil {
 		return Payment{}, err
@@ -62,7 +63,7 @@ func (s Sale) Pay(ctx context.Context, id, buyer int64) (Payment, error) {
 
 func (s Sale) Redeem(ctx context.Context, id, staff int64, code string) error {
 	if len(code) != 32 {
-		return errors.New("核销码格式错误")
+		return api.Problem("核销码格式错误")
 	}
 	tx, err := s.DB.BeginTx(ctx, nil)
 	if err != nil {
@@ -80,7 +81,7 @@ func (s Sale) Redeem(ctx context.Context, id, staff int64, code string) error {
 		return err
 	}
 	if n != 1 {
-		return errors.New("请检查门店权限、核销码和订单状态")
+		return api.Problem("请检查门店权限、核销码和订单状态")
 	}
 	if _, err = tx.ExecContext(ctx, "UPDATE voucher_redemption SET redeemed_by=$1 WHERE order_id=$2", staff, id); err != nil {
 		return err

@@ -1,0 +1,67 @@
+name: xzdp
+x-runtime: &runtime
+  DATABASE_URL: postgres://xzdp:${POSTGRES_PASSWORD:-xzdp}@postgres:5432/xzdp?sslmode=disable
+  REDIS_URL: redis://redis:6379/0
+  DEMO_DATA: "true"
+  STOCK_BUCKETS: ${STOCK_BUCKETS:-1}
+services:
+  postgres:
+    image: imresamu/postgis:17-3.5
+    environment:
+      POSTGRES_USER: xzdp
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-xzdp}
+      POSTGRES_DB: xzdp
+    volumes: [postgres-data:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U xzdp"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+  redis:
+    image: redis:8.8.4
+    command: [redis-server, --appendonly, "yes", --appendfsync, always, --maxmemory-policy, noeviction]
+    volumes: [redis-data:/data]
+    healthcheck:
+      test: [CMD, redis-cli, ping]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+  api:
+    build: .
+    environment:
+      <<: *runtime
+      MOCK_PAYMENT: ${MOCK_PAYMENT:-false}
+      DEMO_CODES: ${DEMO_CODES:-false}
+      SMS_WEBHOOK_URL: ${SMS_WEBHOOK_URL:-}
+      SMS_WEBHOOK_TOKEN: ${SMS_WEBHOOK_TOKEN:-}
+      XZDP_SMTP_ADDRESS: ${XZDP_SMTP_ADDRESS:-}
+      XZDP_SMTP_FROM: ${XZDP_SMTP_FROM:-}
+      XZDP_SMTP_USER: ${XZDP_SMTP_USER:-}
+      XZDP_SMTP_PASSWORD: ${XZDP_SMTP_PASSWORD:-}
+    healthcheck:
+      test: [CMD, wget, -qO-, http://127.0.0.1:8080/readyz]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    ports: ["127.0.0.1:8081:8080"]
+    depends_on: &deps
+      postgres: {condition: service_healthy}
+      redis: {condition: service_healthy}
+  worker:
+    build: .
+    command: [/app/worker]
+    healthcheck:
+      test: [CMD, wget, -qO-, http://127.0.0.1:8082/readyz]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    environment: *runtime
+    depends_on: *deps
+  prometheus:
+    image: prom/prometheus:v3.5.0
+    profiles: [monitoring]
+    volumes: [./deploy/prometheus.yml:/etc/prometheus/prometheus.yml:ro]
+    ports: ["127.0.0.1:9090:9090"]
+volumes:
+  postgres-data:
+  redis-data:

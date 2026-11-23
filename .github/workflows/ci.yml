@@ -1,75 +1,25 @@
-name: xzdp CI
-
-on:
-  push:
-    branches: [ master ]
-  pull_request:
-    branches: [ master ]
-
+name: verify
+on: [push, pull_request]
 jobs:
-  fmt:
-    name: Run go fmt
+  check:
     runs-on: ubuntu-latest
-    steps:
-    - uses: actions/checkout@v2
-
-    - name: Set up Go
-      uses: actions/setup-go@v3
-      with:
-        go-version: 1.22
-
-    - name: Run go fmt
-      run: |
-        fmt_output=$(go fmt ./...)
-        if [ -n "$fmt_output" ]; then
-          echo "The following files need to be formatted:"
-          echo "$fmt_output"
-          exit 1
-        fi
-
-  build:
-    name: Build
-    runs-on: ubuntu-latest
-    steps:
-    - uses: actions/checkout@v2
-
-    - name: Set up Go
-      uses: actions/setup-go@v3
-      with:
-        go-version: 1.22
-
-    - name: Install dependencies
-      run: go mod tidy
-
-    - name: Build
-      run: ./script/build.sh
-
-  test:
-    name: Run tests
-    runs-on: ubuntu-latest
-    needs: build
     services:
+      postgres:
+        image: postgis/postgis:17-3.5
+        env: {POSTGRES_PASSWORD: test}
+        ports: ["5432:5432"]
       redis:
-        image: redis:latest
-        ports:
-          - 6379:6379
-
-
+        image: redis:8
+        ports: ["6379:6379"]
+    env:
+      XZDP_INTEGRATION: "1"
+      DATABASE_URL: postgres://postgres:test@127.0.0.1:5432/postgres?sslmode=disable
+      REDIS_URL: redis://127.0.0.1:6379/0
     steps:
-    - uses: actions/checkout@v2
-
-    - name: Set up Go
-      uses: actions/setup-go@v3
-      with:
-        go-version: 1.22
-
-    - name: Install dependencies
-      run: go mod tidy
-
-    - name: Run tests
-      run: go test ./...
-
-    - name: Verify PostgreSQL startup and core APIs
-      run: |
-        docker compose up -d --build --wait
-        bash script/smoke-phase0.sh
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with: {go-version-file: go.mod}
+      - uses: actions/setup-node@v4
+        with: {node-version: 24}
+      - run: make check
+      - run: go build ./...

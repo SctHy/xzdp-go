@@ -1,0 +1,93 @@
+{
+  "cache_L1": {
+    "database_loads": 0,
+    "l1_hits": 5000,
+    "redis_hits": 0,
+    "timing": {
+      "Requests": 5000,
+      "Concurrency": 64,
+      "QPS": 4003737.889693818,
+      "P50ms": 0.000417,
+      "P99ms": 0.28975
+    }
+  },
+  "cache_Redis": {
+    "database_loads": 0,
+    "l1_hits": 0,
+    "redis_hits": 5000,
+    "timing": {
+      "Requests": 5000,
+      "Concurrency": 64,
+      "QPS": 29780.842896249866,
+      "P50ms": 1.738125,
+      "P99ms": 9.157417
+    }
+  },
+  "cache_cold": {
+    "database_loads": 1,
+    "l1_hits": 0,
+    "redis_hits": 0,
+    "timing": {
+      "Requests": 200,
+      "Concurrency": 200,
+      "QPS": 122664.91991820703,
+      "P50ms": 1.2365,
+      "P99ms": 1.538833
+    }
+  },
+  "go": "go1.27.3",
+  "nearby": {
+    "inserted": 10000,
+    "timing": {
+      "Requests": 500,
+      "Concurrency": 20,
+      "QPS": 1767.1281493554657,
+      "P50ms": 8.553166,
+      "P99ms": 62.639458
+    }
+  },
+  "platform": "darwin/arm64",
+  "postgis_version": "3.5.3",
+  "postgres_version": "17.6 (Debian 17.6-1.pgdg12+1)",
+  "redis_version": "8.8.4",
+  "sale_1_bucket": {
+    "abandoned": 10,
+    "accepted": 100,
+    "admission": {
+      "Requests": 200,
+      "Concurrency": 200,
+      "QPS": 37067.92697618386,
+      "P50ms": 4.139166,
+      "P99ms": 4.685084
+    },
+    "duplicate_orders": 0,
+    "end_to_end_ms_including_retries": 390,
+    "lost": 0,
+    "oversold": 0,
+    "pending": 0,
+    "persisted": 100,
+    "reclaimed": 10,
+    "stock_remaining": 0
+  },
+  "sale_8_bucket": {
+    "abandoned": 10,
+    "accepted": 100,
+    "admission": {
+      "Requests": 200,
+      "Concurrency": 200,
+      "QPS": 30658.976373426332,
+      "P50ms": 3.64775,
+      "P99ms": 5.966875
+    },
+    "duplicate_orders": 0,
+    "end_to_end_ms_including_retries": 504,
+    "lost": 0,
+    "oversold": 0,
+    "pending": 0,
+    "persisted": 100,
+    "reclaimed": 10,
+    "stock_remaining": 0
+  },
+  "scope": "Direct service calls from the host to one Redis instance and one PostGIS instance. Sale latency measures admission; end-to-end includes duplicate retries, persistence and takeover.",
+  "utc": "2026-11-23T09:44:28.791227Z"
+}

@@ -1,3 +1,0 @@
-ALTER TABLE tb_voucher_order ADD UNIQUE KEY uq_order_user_voucher(user_id,voucher_id);
-CREATE TABLE IF NOT EXISTS trade_receipt(order_id BIGINT PRIMARY KEY, created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP);
-CREATE TABLE IF NOT EXISTS trade_dead_letter(order_id BIGINT PRIMARY KEY, voucher_id BIGINT NOT NULL, user_id BIGINT NOT NULL, reason VARCHAR(255) NOT NULL, created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP);

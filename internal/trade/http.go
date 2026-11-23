@@ -2,99 +2,60 @@ package trade
 
 import (
 	"context"
+	"database/sql"
 	"errors"
-	"net"
-	"strconv"
 
 	"github.com/cloudwego/hertz/pkg/app"
 	"github.com/cloudwego/hertz/pkg/app/server"
 
-	"xzdp/biz/utils"
+	api "xzdp/internal/httpapi/endpoint"
+	"xzdp/internal/store"
 )
 
-func (s Sale) Register(h *server.Hertz, mockPayment bool) {
-	if mockPayment {
-		h.POST("/voucher-order/pay/:id", s.action(func(ctx context.Context, id, user int64, _ *app.RequestContext) (any, error) {
-			return s.Pay(ctx, id, user)
-		}))
-		h.POST("/voucher-order/redeem/:id", s.action(func(ctx context.Context, id, user int64, c *app.RequestContext) (any, error) {
-			var input struct {
-				Code string `json:"code"`
+func (s Sale) Register(h *server.Hertz, mock bool) {
+	s.notifications(h)
+	h.GET("/vouchers", api.Endpoint(func(ctx context.Context, c *app.RequestContext) (any, error) {
+		return store.List(ctx, s.DB, "SELECT v.id,title,type,pay_value,actual_value,stock FROM tb_voucher v LEFT JOIN tb_seckill_voucher s ON s.voucher_id=v.id WHERE status=1 ORDER BY v.id")
+	}))
+	action := func(f func(context.Context, int64, int64, *app.RequestContext) (any, error)) app.HandlerFunc {
+		return api.Endpoint(func(ctx context.Context, c *app.RequestContext) (any, error) {
+			id, e := api.ID(c)
+			if e != nil {
+				return nil, e
 			}
-			if err := c.BindJSON(&input); err != nil {
-				return nil, errors.New("请提供核销码")
-			}
-			return "used", s.Redeem(ctx, id, user, input.Code)
-		}))
+			return f(ctx, id, api.UserID(ctx), c)
+		})
 	}
-	h.GET("/notifications", func(ctx context.Context, c *app.RequestContext) {
-		items, err := s.Inbox(ctx, utils.GetUser(ctx).ID)
-		if err != nil {
-			utils.SendErrResponse(ctx, c, 500, err)
-			return
+	h.POST("/vouchers/:id/buy", action(func(ctx context.Context, id, u int64, c *app.RequestContext) (any, error) {
+		order, e := s.Reserve(ctx, id, u)
+		if !errors.Is(e, sql.ErrNoRows) {
+			return order, e
 		}
-		utils.SendSuccessResponse(ctx, c, 200, items)
-	})
-	h.POST("/voucher-order/wait/:id", s.action(func(ctx context.Context, v, u int64, _ *app.RequestContext) (any, error) { return s.Wait(ctx, v, u) }))
-	h.POST("/voucher-order/subscribe/:id", s.action(func(ctx context.Context, v, u int64, _ *app.RequestContext) (any, error) {
-		return "subscribed", s.Subscribe(ctx, v, u)
+		var ordinary int64
+		e = s.DB.QueryRowContext(ctx, `INSERT INTO ordinary_grant(user_id,voucher_id) SELECT $1,id FROM tb_voucher WHERE id=$2 AND status=1 AND type=0 ON CONFLICT(user_id,voucher_id) DO UPDATE SET voucher_id=excluded.voucher_id RETURNING voucher_id`, u, id).Scan(&ordinary)
+		return "claimed", e
 	}))
-	h.POST("/voucher-order/cancel/:id", s.action(func(ctx context.Context, id, u int64, _ *app.RequestContext) (any, error) {
-		return "cancelled", s.Cancel(ctx, strconv.FormatInt(id, 10), u)
+	h.POST("/orders/:id/cancel", action(func(ctx context.Context, id, u int64, c *app.RequestContext) (any, error) {
+		return "cancelled", s.Cancel(ctx, id, u)
 	}))
-	h.POST("/voucher-order/token/:id", s.action(func(ctx context.Context, id, user int64, c *app.RequestContext) (any, error) {
-		return s.Token(ctx, id, user)
+	h.POST("/vouchers/:id/wait", action(func(ctx context.Context, id, u int64, c *app.RequestContext) (any, error) { return s.Wait(ctx, id, u) }))
+	h.GET("/wallet", api.Endpoint(func(ctx context.Context, c *app.RequestContext) (any, error) {
+		return store.List(ctx, s.DB, `SELECT v.title,'领取' source FROM ordinary_grant g JOIN tb_voucher v ON v.id=g.voucher_id WHERE g.user_id=$1 UNION ALL SELECT v.title,to_char(g.month_start,'YYYY-MM')||' 满勤' FROM sign_reward_grant g JOIN tb_voucher v ON v.id=g.voucher_id WHERE g.user_id=$1 ORDER BY 1,2`, api.UserID(ctx))
 	}))
-	h.GET("/voucher-order/status/:id", s.action(func(ctx context.Context, id, user int64, c *app.RequestContext) (any, error) {
-		return s.Status(ctx, strconv.FormatInt(id, 10), user)
+	h.GET("/orders", api.Endpoint(func(ctx context.Context, c *app.RequestContext) (any, error) {
+		return store.List(ctx, s.DB, "SELECT o.id::text id,v.title,o.status FROM tb_voucher_order o JOIN tb_voucher v ON v.id=o.voucher_id WHERE user_id=$1 ORDER BY o.create_time DESC LIMIT 100", api.UserID(ctx))
 	}))
-}
-func (s Sale) action(f func(context.Context, int64, int64, *app.RequestContext) (any, error)) app.HandlerFunc {
-	return func(ctx context.Context, c *app.RequestContext) {
-		user := utils.GetUser(ctx)
-		if user == nil {
-			utils.SendErrResponse(ctx, c, 401, errors.New("请先登录"))
-			return
+	h.GET("/orders/:id", action(func(ctx context.Context, id, u int64, c *app.RequestContext) (any, error) {
+		return s.Status(ctx, id, u)
+	}))
+	if mock {
+		h.POST("/orders/:id/pay", action(func(ctx context.Context, id, u int64, c *app.RequestContext) (any, error) { return s.Pay(ctx, id, u) }))
+	}
+	h.POST("/orders/:id/redeem", action(func(ctx context.Context, id, u int64, c *app.RequestContext) (any, error) {
+		var v struct{ Code string }
+		if c.BindJSON(&v) != nil {
+			return nil, api.Problem("核销码无效")
 		}
-		id, err := strconv.ParseInt(c.Param("id"), 10, 64)
-		if err != nil || id <= 0 {
-			utils.SendErrResponse(ctx, c, 400, errors.New("invalid id"))
-			return
-		}
-		data, err := f(ctx, id, user.ID, c)
-		if err != nil {
-			utils.SendErrResponse(ctx, c, 200, err)
-			return
-		}
-		utils.SendSuccessResponse(ctx, c, 200, data)
-	}
-}
-func (s Sale) Limit(ctx context.Context, c *app.RequestContext) {
-	switch c.FullPath() {
-	case "/voucher-order/token/:id", "/voucher-order/seckill/:id":
-	default:
-		c.Next(ctx)
-		return
-	}
-	user := utils.GetUser(ctx)
-	if user == nil {
-		utils.SendErrResponse(ctx, c, 401, errors.New("请先登录"))
-		c.Abort()
-		return
-	}
-	ip := c.RemoteAddr().String()
-	if host, _, err := net.SplitHostPort(ip); err == nil {
-		ip = host
-	}
-	ok, err := s.Allow(ctx, ip, c.FullPath(), string(c.Response.Header.Peek("X-Request-ID")), user.ID)
-	if err != nil || !ok {
-		code := 429
-		if err != nil {
-			code = 503
-		}
-		utils.SendErrResponse(ctx, c, code, errors.New("暂时无法参与，请稍后重试"))
-		c.Abort()
-		return
-	}
-	c.Next(ctx)
+		return "used", s.Redeem(ctx, id, u, v.Code)
+	}))
 }
